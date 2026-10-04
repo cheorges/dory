@@ -1,8 +1,6 @@
 # Changelog
 
-## 1.0.0 (2026-10-04)
-
-First release.
+## 1.0.0
 
 - Background run after each interactive session writes a session note and updates the project, topic and decision notes it touched (`claude -p`, limited to reading and writing inside the vault).
 - Session start block with the state and open points of the current project and the notes active in the last 14 days.
