@@ -1,4 +1,4 @@
-# dory 🐠
+# 🐠 Dory
 
 dory is a Claude Code plugin that gives Claude a second brain in an Obsidian vault. After every interactive session it writes a session note and updates the notes of the project, topics and decisions the session touched. When a new session starts in a project folder, Claude gets the current state and open points of that project, and it can search the vault for anything older.
 
