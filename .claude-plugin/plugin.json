@@ -1,0 +1,61 @@
+{
+  "name": "dory",
+  "displayName": "dory",
+  "version": "1.0.0",
+  "description": "Second brain for Claude Code: writes every session as linked notes into an Obsidian vault and brings active notes back into new sessions.",
+  "author": { "name": "cheorges", "url": "https://github.com/cheorges" },
+  "license": "MIT",
+  "homepage": "https://github.com/cheorges/dory",
+  "repository": "https://github.com/cheorges/dory",
+  "keywords": ["memory", "obsidian", "second-brain", "notes"],
+  "dependencies": [{ "name": "obsidian", "marketplace": "obsidian-skills" }],
+  "userConfig": {
+    "vault_path": {
+      "type": "directory",
+      "title": "Vault path",
+      "description": "Folder of the Obsidian vault dory writes into.",
+      "required": true
+    },
+    "note_language": {
+      "type": "string",
+      "title": "Note language",
+      "description": "Language of the note content. Folders, templates and headings stay English.",
+      "default": "English"
+    },
+    "active_days": {
+      "type": "number",
+      "title": "Active window (days)",
+      "description": "Notes touched within this many days are part of the short-term memory.",
+      "default": 14,
+      "min": 1,
+      "max": 365
+    },
+    "writer_model": {
+      "type": "string",
+      "title": "Writer model",
+      "description": "Model of the background run that writes the notes.",
+      "options": ["sonnet", "haiku", "opus"],
+      "default": "sonnet"
+    },
+    "min_user_messages": {
+      "type": "number",
+      "title": "Minimum user messages",
+      "description": "Sessions with fewer of your messages get no note.",
+      "default": 3,
+      "min": 1
+    },
+    "auto_capture": {
+      "type": "boolean",
+      "title": "Write sessions automatically",
+      "description": "Background run after each session. /dory:save and /dory:note always work.",
+      "default": true
+    },
+    "exclude_paths": {
+      "type": "string",
+      "title": "Excluded folders",
+      "description": "Working folders that are never written to the vault automatically.",
+      "multiple": true,
+      "default": []
+    }
+  }
+}

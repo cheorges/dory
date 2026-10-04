@@ -1,0 +1,13 @@
+{
+  "name": "dory",
+  "owner": { "name": "cheorges", "url": "https://github.com/cheorges" },
+  "metadata": { "description": "Marketplace for dory, a second brain for Claude Code in an Obsidian vault." },
+  "allowCrossMarketplaceDependenciesOn": ["obsidian-skills"],
+  "plugins": [
+    {
+      "name": "dory",
+      "source": "./",
+      "description": "Second brain for Claude Code in an Obsidian vault."
+    }
+  ]
+}
