@@ -5,6 +5,7 @@ All notable changes to dory are listed here. Versions follow [Semantic Versionin
 ## 0.2.0 (2026-10-12)
 
 - README: the configuration shows the three settings a user chooses (`vault`, `language`, `model`); the six tuning settings are documented under "Advanced settings" with what each one guards against. Behaviour and defaults are unchanged.
+- README: updating an installed plugin takes `claude plugin update dory@brain`; `claude plugin install` does not pick up a new version.
 
 ## 0.1.1 (2026-10-12)
 

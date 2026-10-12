@@ -18,7 +18,7 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 **Legend:** Open | In Progress | Done
 
-**Next Step:** Watch it in daily use: read the first real notes in the vault, check `dory status`. The plugin is installed from the GitHub marketplace like any user's: changes reach this machine only after a push and `claude plugin marketplace update brain && claude plugin install dory@brain`.
+**Next Step:** Watch it in daily use: read the first real notes in the vault, check `dory status`. The plugin is installed from the GitHub marketplace like any user's: changes reach this machine only after a push and `claude plugin marketplace update brain && claude plugin update dory@brain`, then a restart.
 
 ### Future
 

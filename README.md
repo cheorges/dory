@@ -65,7 +65,7 @@ To update an installation from GitHub:
 
 ```bash
 claude plugin marketplace update brain
-claude plugin install dory@brain
+claude plugin update dory@brain
 ```
 
 From a local clone, Claude Code loads the plugin in place: changes take effect at the next session start or after `/reload-plugins`.
