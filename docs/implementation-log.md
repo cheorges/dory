@@ -250,3 +250,16 @@ Plan: [Record 001](records/001-second-brain.md)
 - P3 "Replaced" was defined twice, in search and recall (both agents): `Note.superseded`.
 
 **Open, not part of this story.** `/dory:save` and `/dory:note` still allow `Bash` without restriction. They only start on explicit invocation (`disable-model-invocation`), but `/dory:note` reads vault content; the same restriction can be applied there.
+
+## Quality pass before 0.1.0 (2026-10-11 to 2026-10-12)
+
+**What it solves.** Before the plugin was switched on for real sessions, the worker processed 10 real sessions from five areas (two repos with worktrees, a personal app, `~`, a folder without git) with `sonnet` into a throwaway vault. All 10 ran without error, 18 to 61 seconds each, 0.16 to 0.36 USD API equivalent. 12 of 12 sampled facts (numbers, VM sizes, tags, error messages) were found in the transcript or bundle; no secrets reached the vault.
+
+**Findings and fixes.**
+- The project overview's open items grew to 15 after five sessions and took a third of the start budget. The recall now shows at most 7 open items plus a pointer to the overview; the rules cap the list at 10 and drop what is done or outdated.
+- A rule the user had set for one app ("documentation may go straight to main") landed in `general/` and would have been loaded in every work session. The rules now keep project rules out of `general/`. The first version of that rule overcorrected (almost nothing went to `general/` any more); the final rule separates a project's own stack, which stays in the project, from tools, accounts and devices, which go to `general/`.
+- A note about the user's own NAS was marked `work`. `domain` now follows the content, with home infrastructure counted as private.
+- Live checks found that tests read the user's real config (`language = "German"` turned "milk" into "Milch"); `tests/conftest.py` now points `DORY_CONFIG` at a throwaway file for every test. Haiku sometimes left `projects: []` on a note inside a project folder; the rules now say a note under `projects/<project>/` always lists it.
+- After the switch to English, `/dory:note` live checks ran 18 of 18 (three rounds) and the rule checks 8 of 8, including a check that `language = "German"` produces German notes.
+
+**Also in this pass.** The worker strips `ANTHROPIC_API_KEY` so it always runs on the subscription; `dory status` labels costs as API equivalent. `/dory:search` only grants its own command to Bash, verified with a probe: with a plain `Bash` grant an extra `touch` ran unprompted, with the narrowed grant it was denied.

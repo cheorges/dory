@@ -14,11 +14,12 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Second Brain | Done | [Record 001](docs/records/001-second-brain.md), 10 stories built, installed from GitHub since 2026-10-12 (`dory@brain`) |
 
 **Legend:** Open | In Progress | Done
 
-**Next Step:** Watch it in daily use: read the first real notes in the vault, check `dory status`. The plugin is installed from the GitHub marketplace like any user's: changes reach this machine only after a push and `claude plugin marketplace update brain && claude plugin update dory@brain`, then a restart.
+No story in progress. Second Brain (Record 001, 10 stories) is released; versions are in [CHANGELOG.md](CHANGELOG.md), currently 0.2.0.
+
+**Next Step:** Watch it in daily use: read the first real notes in `~/Documents/dory`, check `dory status`. Releasing: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, tag `vX.Y.Z`, push; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart.
 
 ### Future
 
@@ -32,14 +33,13 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Date | Decision | Why |
 |------|----------|-----|
-| 2026-10-09 | One global memory across all projects, not one per project | Knowledge should be findable across projects; assignment to a project or note topic happens automatically on write |
-| 2026-10-09 | Obsidian as storage and viewer | Memory stays readable and navigable for the human (graph, backlinks, bases) |
-| 2026-10-09 | Vault separate, without git, path configurable; undo through APFS snapshots | Code and data stay apart; no git wanted in the vault |
-| 2026-10-09 | A project only comes from a git repo (main path, worktrees included) | Assignment as a fact instead of an LLM judgement; no throwaway projects |
-| 2026-10-09 | One skill `dory:rules` for worker, save and note | The writing rules exist exactly once |
 | 2026-10-11 | Worker model stays `sonnet` (Haiku as a config option) | Haiku passed all 7 live checks at 1/15 of the cost; the user keeps a quality margin for complex sessions |
-| 2026-10-12 | Marketplace named `brain`, plugin installed as `dory@brain` | Short install command; repo is `cheorges/dory` |
 | 2026-10-11 | Repository public and in English; note language configurable (`language`, default English), note headings always English | Public use; the recall parses the headings, so they cannot depend on the language |
+| 2026-10-12 | Apache 2.0 with a NOTICE file | Free use, also commercial; redistributions must credit the author |
+| 2026-10-12 | Public history starts fresh with the 0.1.0 commits; the old history exists only on local `backup/*` branches | The old commits carried German text and customer names |
+| 2026-10-12 | Marketplace named `brain`, plugin installed as `dory@brain`, also on the author's machine from GitHub | Short install command; the author runs exactly what users get, so changes need a push and `plugin update` |
+
+The design decisions of 2026-10-09 (one global memory, Obsidian, vault without git, project = git repo, one rules skill) are in [Record 001](docs/records/001-second-brain.md).
 
 ---
 
