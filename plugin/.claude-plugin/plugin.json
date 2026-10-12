@@ -1,0 +1,11 @@
+{
+  "name": "dory",
+  "version": "0.1.0",
+  "description": "Second brain for Claude Code: sessions become Obsidian notes, recalled at session start",
+  "author": {
+    "name": "cheorges",
+    "url": "https://github.com/cheorges"
+  },
+  "homepage": "https://github.com/cheorges/dory",
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,15 @@
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = []
+# ///
+"""dory command, called by hooks, skills and the worker."""
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from dory.cli import main  # noqa: E402
+
+sys.exit(main())
