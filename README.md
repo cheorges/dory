@@ -2,11 +2,11 @@
 
 A memory for Claude Code. When a session ends, a background process writes what was learned in it as notes into an Obsidian vault. When a new session starts, Claude gets the relevant part back: where the project stands, what happened in the last sessions, and what is already known about it.
 
-The notes are plain Markdown. You can open the vault in Obsidian and work with graph, backlinks and search. Notes are written in the language you configure (English by default); code, commands and identifiers stay as they are.
+The notes are plain Markdown, so you can browse them in Obsidian. They are written in the language you configure, English by default.
 
-## What you get once the plugin is installed
+## What you get
 
-### What happens on its own
+### Automatically
 
 - **When a session ends** (`/exit`, `/clear`, closing the tab, Ctrl+C), it goes into a queue. A worker processes it in the background with `claude -p` and writes:
   - a session note: what was done, which notes came out of it, what is still open
@@ -30,7 +30,7 @@ dory status   # queue, failed entries with reason, last error, API equivalent co
 dory retry    # move failed entries back into the queue
 ```
 
-`dory` lives in the plugin at `plugin/bin/dory`. Installed from GitHub, Claude Code keeps a copy under `~/.claude/plugins/cache/brain/dory/<version>/`; installed from a local clone, it runs straight from the clone.
+`dory` is in the installed plugin: `~/.claude/plugins/cache/brain/dory/<version>/bin/dory`.
 
 ## Requirements
 
@@ -41,36 +41,21 @@ dory retry    # move failed entries back into the queue
 
 ## Installation
 
-1. Choose where the vault lives. Without configuration it is `~/Obsidian/dory-brain`. Keep it out of iCloud Drive: iCloud offloads files, and the worker then cannot find them.
+```bash
+claude plugin marketplace add cheorges/dory
+claude plugin install dory@brain
+```
 
-   ```bash
-   mkdir -p ~/.config/dory-brain
-   echo 'vault = "~/Documents/dory"' > ~/.config/dory-brain/config.toml
-   ```
+Restart Claude Code. From the next session on, ended sessions land in `~/Obsidian/dory-brain`; to use another folder or language, see [Configuration](#configuration). In Obsidian, open the folder with *Open folder as vault*.
 
-2. Add the GitHub repository as a marketplace and install the plugin:
-
-   ```bash
-   claude plugin marketplace add cheorges/dory
-   claude plugin install dory@brain
-   ```
-
-   To work from a local clone instead, pass its path: `claude plugin marketplace add ~/Development/dory`.
-
-3. Restart Claude Code. The hooks run from the next session on.
-
-4. Optional: open the vault in Obsidian (*Open folder as vault*).
-
-To update an installation from GitHub:
+To update:
 
 ```bash
 claude plugin marketplace update brain
 claude plugin update dory@brain
 ```
 
-From a local clone, Claude Code loads the plugin in place: changes take effect at the next session start or after `/reload-plugins`.
-
-To remove it:
+To remove:
 
 ```bash
 claude plugin uninstall dory@brain
@@ -80,10 +65,10 @@ The vault and the state directory stay where they are.
 
 ## Configuration
 
-`~/.config/dory-brain/config.toml`. Three settings are yours to choose; all are optional:
+Create `~/.config/dory-brain/config.toml` if you want to change a default:
 
 ```toml
-vault = "~/Obsidian/dory-brain"  # where the notes live; keep it out of iCloud Drive
+vault = "~/Obsidian/dory-brain"  # where the notes live; not in iCloud Drive, which offloads files
 language = "English"             # language the notes are written in, e.g. "German"
 model = "sonnet"                 # worker model; "haiku" uses far less of your usage limit
 ```
@@ -92,9 +77,9 @@ model = "sonnet"                 # worker model; "haiku" uses far less of your u
 
 ### Advanced settings
 
-These have defaults that work; change them only if you have a reason.
+Change these only if you have a reason.
 
-| Setting | Default | What it guards against |
+| Setting | Default | Purpose |
 |---|---|---|
 | `recall_budget_tokens` | `1500` | What a session start injects sits in the context of every session. More costs every session; less pushes knowledge notes into the catalog, where only their path appears. |
 | `short_term_sessions` | `3` | How many recent sessions of the project appear at start. More takes budget from knowledge notes; fewer loses the thread after a break. |
@@ -118,14 +103,14 @@ flowchart LR
 
 ### Queue
 
-The `SessionEnd` hook copies the transcript (an APFS clone, instant and almost free in disk space) to `~/.local/state/dory-brain/transcripts/` and puts an entry into the queue. It then starts the worker detached and returns at once, so Claude Code never waits for the processing.
+The `SessionEnd` hook clones the transcript to `~/.local/state/dory-brain/transcripts/`, queues an entry and starts the worker detached. Claude Code does not wait for it.
 
 ### Worker
 
-Only one runs at a time; a file lock makes sure of that. For each entry:
+One worker runs at a time (file lock). For each entry:
 
 1. The transcript is condensed: only what you and Claude wrote is kept. Tool output, attachments and command wrappers are dropped because they carry foreign text and personal data. Secrets are redacted first. Lines processed before are skipped.
-2. A snapshot of the vault is taken (an APFS clone under `~/.local/state/dory-brain/snapshots/`; the last 50 are kept).
+2. The vault is snapshotted (see [Undoing a change](#undoing-a-change)).
 3. `claude -p` processes the bundle with the writing rules from `plugin/skills/rules/SKILL.md`. The run is restricted (`--restricted`): it sees only the vault and its own bundle, no CLAUDE.md, no settings, no other plugins.
 4. A run only counts as a success if the session note exists. On a rate limit or network error the entry stays in the queue and is retried next time. After three real failures it moves to `failed/`, which `dory status` shows.
 
@@ -162,7 +147,7 @@ All notes are Obsidian Flavored Markdown with properties in the frontmatter and 
 
 ### Undoing a change
 
-The vault has no git. A snapshot is taken before every write; you restore a file from there:
+The vault has no git. Before every write, dory takes a snapshot (an APFS clone, the last 50 are kept). Restore a file from there:
 
 ```bash
 ls ~/.local/state/dory-brain/snapshots/
@@ -173,7 +158,7 @@ cp ~/.local/state/dory-brain/snapshots/<timestamp>/projects/x/x-topic.md ~/Docum
 
 The worker runs on your Claude subscription, not on the API. It removes `ANTHROPIC_API_KEY` from its environment so an API key is never used. The runs count against your usage limit like a normal session.
 
-`dory status` still shows an amount in USD: the API equivalent that `claude -p` reports for every run. Measured on 10 real sessions with `sonnet`, it was 0.18 to 0.35 USD per session, 25 to 60 seconds each. With `model = "haiku"` it is about a fifteenth of that.
+`dory status` shows an amount in USD anyway: the API equivalent that `claude -p` reports for each run. On 10 real sessions with `sonnet` it was 0.18 to 0.35 USD per session, 20 to 60 seconds each. `haiku` needs about a fifteenth of that.
 
 ## Development
 
@@ -182,7 +167,9 @@ uv run pytest -q && uv run ruff check .     # tests and linter
 DORY_LIVE=1 uv run pytest -m live           # live checks against real claude -p (counts against your limit)
 ```
 
-The live checks use Haiku; `DORY_LIVE_MODEL=sonnet` picks another model. They run against throwaway vaults.
+The live checks use Haiku (`DORY_LIVE_MODEL=sonnet` for another model) and throwaway vaults.
+
+To run the plugin from a clone, add the clone as the marketplace instead: `claude plugin marketplace add ~/Development/dory`. Claude Code then loads the plugin in place, so changes take effect at the next session start or after `/reload-plugins`.
 
 Design and decisions: [Record 001](docs/records/001-second-brain.md). What was built and checked per story: [implementation log](docs/implementation-log.md).
 
