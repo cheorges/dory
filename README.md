@@ -80,21 +80,28 @@ The vault and the state directory stay where they are.
 
 ## Configuration
 
-`~/.config/dory-brain/config.toml`, every value is optional:
+`~/.config/dory-brain/config.toml`. Three settings are yours to choose; all are optional:
 
 ```toml
-vault = "~/Obsidian/dory-brain"
-model = "sonnet"                 # worker model; "haiku" is cheaper
+vault = "~/Obsidian/dory-brain"  # where the notes live; keep it out of iCloud Drive
 language = "English"             # language the notes are written in, e.g. "German"
-recall_budget_tokens = 1500      # upper limit for what a session start injects
-short_term_sessions = 3          # last sessions shown at start
-min_user_messages = 3            # shorter sessions are skipped
-condense_max_tokens = 30000      # upper limit for the condensed transcript
-worker_timeout_minutes = 10
-snapshots_keep = 50
+model = "sonnet"                 # worker model; "haiku" uses far less of your usage limit
 ```
 
 `DORY_VAULT` and `DORY_STATE_DIR` override the vault and the state directory.
+
+### Advanced settings
+
+These have defaults that work; change them only if you have a reason.
+
+| Setting | Default | What it guards against |
+|---|---|---|
+| `recall_budget_tokens` | `1500` | What a session start injects sits in the context of every session. More costs every session; less pushes knowledge notes into the catalog, where only their path appears. |
+| `short_term_sessions` | `3` | How many recent sessions of the project appear at start. More takes budget from knowledge notes; fewer loses the thread after a break. |
+| `min_user_messages` | `3` | Sessions with fewer messages from you are skipped, so a quick question does not cost a worker run. Counted over the whole session. |
+| `condense_max_tokens` | `30000` | Upper limit for the condensed transcript the worker reads. Longer sessions keep their beginning and end; the middle is cut. |
+| `worker_timeout_minutes` | `10` | Without a network, `claude -p` hangs instead of failing. The timeout stops it so the queue keeps moving. Real runs take 20 to 60 seconds. |
+| `snapshots_keep` | `50` | How many vault snapshots are kept for undo. A snapshot is taken before every write; APFS clones cost almost no disk space. |
 
 ## How it works
 
