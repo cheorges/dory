@@ -30,7 +30,7 @@ dory status   # queue, failed entries with reason, last error, API equivalent co
 dory retry    # move failed entries back into the queue
 ```
 
-`dory` lives in the plugin at `plugin/bin/dory`. Installed from GitHub, Claude Code keeps a copy under `~/.claude/plugins/cache/dory-brain/dory/<version>/`; installed from a local clone, it runs straight from the clone.
+`dory` lives in the plugin at `plugin/bin/dory`. Installed from GitHub, Claude Code keeps a copy under `~/.claude/plugins/cache/brain/dory/<version>/`; installed from a local clone, it runs straight from the clone.
 
 ## Requirements
 
@@ -52,7 +52,7 @@ dory retry    # move failed entries back into the queue
 
    ```bash
    claude plugin marketplace add cheorges/dory
-   claude plugin install dory@dory-brain
+   claude plugin install dory@brain
    ```
 
    To work from a local clone instead, pass its path: `claude plugin marketplace add ~/Development/dory`.
@@ -64,8 +64,8 @@ dory retry    # move failed entries back into the queue
 To update an installation from GitHub:
 
 ```bash
-claude plugin marketplace update dory-brain
-claude plugin install dory@dory-brain
+claude plugin marketplace update brain
+claude plugin install dory@brain
 ```
 
 From a local clone, Claude Code loads the plugin in place: changes take effect at the next session start or after `/reload-plugins`.
@@ -73,7 +73,7 @@ From a local clone, Claude Code loads the plugin in place: changes take effect a
 To remove it:
 
 ```bash
-claude plugin uninstall dory@dory-brain
+claude plugin uninstall dory@brain
 ```
 
 The vault and the state directory stay where they are.

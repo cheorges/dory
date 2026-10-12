@@ -14,11 +14,11 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Second Brain | Done | [Record 001](docs/records/001-second-brain.md), 10 stories built, installed since 2026-10-11 (`dory@dory-brain`) |
+| Second Brain | Done | [Record 001](docs/records/001-second-brain.md), 10 stories built, installed from GitHub since 2026-10-12 (`dory@brain`) |
 
 **Legend:** Open | In Progress | Done
 
-**Next Step:** Watch it in daily use: read the first real notes in the vault, check `dory status`. The plugin is installed from this local clone and loads in place: changes apply at the next session start or after `/reload-plugins`. Moving or renaming the repo folder breaks the installation.
+**Next Step:** Watch it in daily use: read the first real notes in the vault, check `dory status`. The plugin is installed from the GitHub marketplace like any user's: changes reach this machine only after a push and `claude plugin marketplace update brain && claude plugin install dory@brain`.
 
 ### Future
 
@@ -38,6 +38,7 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 | 2026-10-09 | A project only comes from a git repo (main path, worktrees included) | Assignment as a fact instead of an LLM judgement; no throwaway projects |
 | 2026-10-09 | One skill `dory:rules` for worker, save and note | The writing rules exist exactly once |
 | 2026-10-11 | Worker model stays `sonnet` (Haiku as a config option) | Haiku passed all 7 live checks at 1/15 of the cost; the user keeps a quality margin for complex sessions |
+| 2026-10-12 | Marketplace named `brain`, plugin installed as `dory@brain` | Short install command; repo is `cheorges/dory` |
 | 2026-10-11 | Repository public and in English; note language configurable (`language`, default English), note headings always English | Public use; the recall parses the headings, so they cannot depend on the language |
 
 ---
