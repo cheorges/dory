@@ -1,0 +1,12 @@
+{
+ "type": "result",
+ "subtype": "success",
+ "is_error": true,
+ "terminal_reason": "api_error",
+ "api_error_status": 404,
+ "result": "There's an issue with the selected model (no-such-model-xyz). It may not exist or you may not have access to it. Run --model to pick a different model.",
+ "num_turns": 1,
+ "total_cost_usd": 0,
+ "session_id": "8285ac0a-822b-4592-bdca-6f8609d70893",
+ "stop_reason": "stop_sequence"
+}

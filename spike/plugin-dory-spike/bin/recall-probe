@@ -1,0 +1,4 @@
+#!/bin/sh
+# Spike: emit SessionStart additionalContext as JSON
+cat >/dev/null
+printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"Erinnerungen aus dory-brain. RECALL-MARKER-4412: Loki laeuft auf Port 3100."}}'

@@ -1,0 +1,12 @@
+{
+ "type": "result",
+ "subtype": "success",
+ "is_error": false,
+ "terminal_reason": "completed",
+ "api_error_status": null,
+ "result": "I wrote `spike-hello.md` in the current working directory (`.../scratchpad/vault/`) with the requested line. Nothing else was done.",
+ "num_turns": 2,
+ "total_cost_usd": 0.00049667,
+ "session_id": "64344afd-7d81-47c7-85f3-4b959627093a",
+ "stop_reason": "end_turn"
+}

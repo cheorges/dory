@@ -1,0 +1,8 @@
+#!/bin/sh
+# Spike: log hook input and selected env to the scratch hook log
+ts=$(date +%s%N 2>/dev/null || date +%s)
+{ echo "EVENT=$1"; echo "CLAUDECODE=${CLAUDECODE:-}"; echo "DORY_WORKER=${DORY_WORKER:-}"; echo "CLAUDE_SESSION_ID_ENV=${CLAUDE_CODE_SESSION_ID:-}"; cat; } > "${DORY_SPIKE_LOG:?}/$1-$$-$ts.txt"
+if [ "$1" = "SessionEnd" ]; then
+  ( sleep 15; echo survived > "${DORY_SPIKE_LOG:?}/detached-survived-$$.txt" ) </dev/null >/dev/null 2>&1 &
+fi
+exit 0
