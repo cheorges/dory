@@ -3,10 +3,11 @@
 import json
 import shutil
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
 
+from dory import repodocs
 from dory.project import repo_root
 from dory.state import StateDir
 
@@ -42,10 +43,20 @@ def enqueue(state: StateDir, *, session_id: str, transcript: Path, cwd: str, rea
     _clone(transcript, copy)
     entry.transcript_copy = str(copy)
     path = state.queue / f"{entry.id}.json"
-    _write(path, entry)
+    _write(path, entry)  # first: a hook killed while copying documents still queued its session
+    _capture_docs(state, entry)
     if reason != "save":
         (state.sessions / f"{session_id}.json").unlink(missing_ok=True)
     return path
+
+
+def _capture_docs(state: StateDir, entry: Entry) -> None:
+    if not entry.repo_root:
+        return
+    try:
+        repodocs.capture(Path(entry.cwd), Path(entry.repo_root), repodocs.docs_dir(state, entry.id))
+    except Exception:  # the entry is queued already; it is processed without documents
+        repodocs.discard(state, entry.id)
 
 
 def pending(state: StateDir) -> list[Path]:
@@ -53,7 +64,9 @@ def pending(state: StateDir) -> list[Path]:
 
 
 def load(path: Path) -> Entry:
-    return Entry(**json.loads(path.read_text()))
+    data = json.loads(path.read_text())
+    known = {field.name for field in fields(Entry)}  # entries written by a newer version load
+    return Entry(**{key: value for key, value in data.items() if key in known})
 
 
 def save(path: Path, entry: Entry) -> None:

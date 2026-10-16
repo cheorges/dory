@@ -4,7 +4,7 @@
       {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/dory recall"}]}
     ],
     "SessionEnd": [
-      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/dory enqueue"}]}
+      {"hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/dory enqueue", "timeout": 10}]}
     ]
   }
 }

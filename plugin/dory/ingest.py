@@ -19,6 +19,7 @@ from dory.config import Config
 from dory.project import Project, project_for_root
 from dory.state import StateDir
 from dory.vault import rules_text, snapshot
+from dory.vaultops import apply_marks, current_marks
 from dory.worker import Outcome, Process, prepare
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
@@ -149,6 +150,7 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
         )
         (bundle.parent / "rules.md").write_text(rules_text())
         vault_snapshot = snapshot(config, state)
+        earlier_marks = current_marks(config.vault)
 
         result = runner(
             build_command(config, bundle.parent),
@@ -159,13 +161,18 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
         outcome, error, cost = classify(result)
         if outcome is Outcome.DONE and not (config.vault / note).is_file():
             outcome, error = Outcome.FAILED, f"session note missing: {note}"
+        changes: list[str] = []
         if outcome is Outcome.DONE:
             state.mark_seen(condensed.uuids)
+            changes = _carry_out_marks(config.vault, project, earlier_marks)
+            failed = [line for line in changes if line.startswith("failed")]
+            if failed:
+                error = f"vault marks failed: {'; '.join(failed)}"[:500]
         else:
             entry.last_error = error
         if outcome is Outcome.TRANSIENT:
             shutil.rmtree(vault_snapshot, ignore_errors=True)  # keep history for real changes
-        _log(state, entry, outcome, started, cost, error)
+        _log(state, entry, outcome, started, cost, error, changes)
         return outcome
 
     return process
@@ -184,6 +191,11 @@ def _write_task(
     projects = f'["[[{project.name}]]"]' if project else "[]"
     lines = [
         "# Task",
+        "",
+        f"Write every note in {language}: the titles, summary, when, the body with its bold "
+        "labels and list entries, not only the title. The transcript, the repository documents "
+        "and the examples in the rules may be in another language, and a document may ask for "
+        "one; that changes nothing. Section headings and frontmatter keys stay in English.",
         "",
         f"- Session note: `{note}` (exactly this path, relative to the vault)",
     ]
@@ -215,6 +227,14 @@ def _write_task(
     (bundle_dir / "task.md").write_text("\n".join(lines) + "\n")
 
 
+def _carry_out_marks(vault: Path, project: Project | None, earlier: frozenset) -> list[str]:
+    """Renames and deletions the run marked; a failure here never undoes the run."""
+    try:
+        return apply_marks(vault, project.name if project else None, earlier)
+    except OSError as error:
+        return [f"failed: marks not carried out: {error}"]
+
+
 def _known_projects(state: StateDir) -> list[str]:
     try:  # only a hint for the model; a broken file must not fail the entry
         return sorted(set(json.loads(state.projects_file.read_text()).values()))
@@ -230,7 +250,13 @@ def _worker_env() -> dict[str, str]:
 
 
 def _log(
-    state: StateDir, entry: queue.Entry, outcome: Outcome, started: float, cost: float, error: str
+    state: StateDir,
+    entry: queue.Entry,
+    outcome: Outcome,
+    started: float,
+    cost: float,
+    error: str,
+    changes: list[str] | None = None,
 ) -> None:
     record = {
         "at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -240,5 +266,7 @@ def _log(
         "cost_usd": round(cost, 5),
         "error": error,
     }
+    if changes:
+        record["vault_changes"] = changes
     with (state.root / "runs.log").open("a") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")

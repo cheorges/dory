@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 
-from dory import queue
+from dory import queue, repodocs
 from dory.bundle import build_bundle, write_bundle
 from dory.condense import condense
 from dory.config import Config
@@ -39,6 +39,7 @@ def run(state: StateDir, process: Process) -> str:
         with lock(state) as held:
             if not held:
                 return "busy"
+            repodocs.sweep(state)
             stopped = _drain(state, process, tried)
         if stopped:
             return "stopped"
@@ -57,7 +58,8 @@ def prepare(entry: queue.Entry, config: Config, state: StateDir):
         return None, condensed
     root = Path(entry.repo_root) if entry.repo_root else None
     project = project_for_root(root, state.projects_file) if root else None
-    bundle = write_bundle(state.work, entry.id, build_bundle(entry, project, condensed))
+    docs = repodocs.docs_dir(state, entry.id)
+    bundle = write_bundle(state.work, entry.id, build_bundle(entry, project, condensed, docs))
     return bundle, condensed
 
 
@@ -100,6 +102,14 @@ def _drain(state: StateDir, process: Process, tried: set[str]) -> bool:
 
 
 def _handle(state: StateDir, path: Path, process: Process) -> bool:
+    try:
+        return _handle_entry(state, path, process)
+    finally:
+        if not path.exists():  # the entry left the queue: its documents are no longer needed
+            repodocs.discard(state, path.stem)
+
+
+def _handle_entry(state: StateDir, path: Path, process: Process) -> bool:
     try:
         entry = queue.load(path)
     except (OSError, ValueError, TypeError):

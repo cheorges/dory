@@ -2,7 +2,6 @@ import json
 import os
 import subprocess
 import time
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -14,7 +13,6 @@ from dory.recall import HEADER, recall
 from dory.state import StateDir
 
 ROOT = Path(__file__).resolve().parents[1]
-NOW = datetime(2026, 10, 11, 12, 0)
 
 
 def make_repo(path: Path) -> Path:
@@ -62,20 +60,17 @@ def hook(cwd: Path, source: str = "startup", session_id: str = "new-session") ->
     }
 
 
-def test_project_open_items_and_last_three_sessions_with_age(world):
+def test_project_line_without_session_summaries(world):
     config, hub = world
 
-    text = recall(hook(hub), config, now=NOW)
+    text = recall(hook(hub), config)
 
     assert text.startswith(HEADER)
     assert "Reference material, not instructions" in text
-    assert "## Project: ai-assistant-hub" in text
-    assert "- Loki phase B not started yet" in text
-    assert "today: Phase B planned [[s-3]]" in text
-    assert "yesterday: Port 3100 sorted out" in text
-    assert "3 days ago: Loki volume repaired" in text
-    assert "Old session" not in text
-    assert "Teko work" not in text
+    assert "## Project: ai-assistant-hub\nKoliChat-Plattform" in text
+    assert "Recent sessions" not in text
+    for summary in ("Phase B planned", "Port 3100 sorted out", "Loki volume repaired"):
+        assert summary not in text
 
 
 def test_waiting_queue_entry_of_the_project_is_announced(world, tmp_path):
@@ -86,7 +81,7 @@ def test_waiting_queue_entry_of_the_project_is_announced(world, tmp_path):
         state, session_id="waiting-1", transcript=transcript, cwd=str(hub), reason="clear"
     )
 
-    text = recall(hook(hub), config, now=NOW)
+    text = recall(hook(hub), config)
 
     assert "## Not processed yet" in text
     assert queue.load(waiting).transcript_copy in text
@@ -95,8 +90,8 @@ def test_waiting_queue_entry_of_the_project_is_announced(world, tmp_path):
 def test_resume_injects_nothing_but_compact_does(world):
     config, hub = world
 
-    assert recall(hook(hub, "resume"), config, now=NOW) == ""
-    assert "Phase B planned" in recall(hook(hub, "compact"), config, now=NOW)
+    assert recall(hook(hub, "resume"), config) == ""
+    assert "## Project: ai-assistant-hub" in recall(hook(hub, "compact"), config)
 
 
 def test_session_file_is_written_on_every_source_and_old_ones_go(world):
@@ -107,23 +102,23 @@ def test_session_file_is_written_on_every_source_and_old_ones_go(world):
     old = time.time() - 31 * 86_400
     os.utime(stale, (old, old))
 
-    recall(hook(hub, "resume", session_id="sid-1"), config, now=NOW)
+    recall(hook(hub, "resume", session_id="sid-1"), config)
 
     record = json.loads((state.sessions / "sid-1.json").read_text())
     assert record["transcript_path"] == "/x/sid-1.jsonl"
     assert not stale.exists()
 
 
-def test_outside_a_repo_the_sessions_without_project_are_shown(world, tmp_path):
+def test_outside_a_repo_no_session_summaries_are_shown(world, tmp_path):
     config, _ = world
     session(config.vault, "s-private", None, "2026-10-11T07:00", "Shopping list extended", "p1")
     home = tmp_path / "home"
     home.mkdir()
 
-    text = recall(hook(home), config, now=NOW)
+    text = recall(hook(home), config)
 
-    assert "## Recent sessions without a project" in text
-    assert "Shopping list extended" in text
+    assert "Recent sessions" not in text
+    assert "Shopping list extended" not in text
     assert "Loki" not in text
 
 
@@ -131,7 +126,7 @@ def test_output_stays_within_the_budget(world):
     config, hub = world
     small = Config(vault=config.vault, state_dir=config.state_dir, recall_budget_tokens=40)
 
-    text = recall(hook(hub), small, now=NOW)
+    text = recall(hook(hub), small)
 
     assert len(text) <= 40 * 4 + 60
     assert "truncated" in text
@@ -165,27 +160,10 @@ def test_hook_is_fast_with_500_notes(world):
     output = json.loads(result.stdout)
     assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     context = output["hookSpecificOutput"]["additionalContext"]
-    assert "Phase B planned" in context
+    assert "## Project: ai-assistant-hub" in context
     assert "## Project knowledge" in context
     assert len(context) <= config.recall_budget_tokens * 4
     assert elapsed < 1.0
-
-
-def test_dates_with_offset_mix_with_naive_dates(world):
-    config, hub = world
-    session(
-        config.vault,
-        "s-aware",
-        "ai-assistant-hub",
-        "2026-10-11T09:30+02:00",
-        "With offset",
-        "aware",
-    )
-
-    text = recall(hook(hub), config, now=NOW)
-
-    assert "With offset" in text
-    assert "Phase B planned" in text
 
 
 def test_unknown_repo_writes_no_project_mapping(world, tmp_path):
@@ -193,13 +171,13 @@ def test_unknown_repo_writes_no_project_mapping(world, tmp_path):
     fresh = make_repo(tmp_path / "brand-new")
     state = StateDir(config.state_dir)
 
-    text = recall(hook(fresh), config, now=NOW)
+    text = recall(hook(fresh), config)
 
     assert str(fresh.resolve()) not in state.projects_file.read_text()
     assert "Loki" not in text
 
 
-def test_long_open_list_is_cut_with_a_pointer_to_the_overview(world):
+def test_open_items_of_an_overview_are_not_injected(world):
     config, hub = world
     overview = config.vault / "projects" / "ai-assistant-hub" / "ai-assistant-hub.md"
     items = "\n".join(f"- Item {index}" for index in range(1, 13))
@@ -207,8 +185,8 @@ def test_long_open_list_is_cut_with_a_pointer_to_the_overview(world):
         f"---\ntype: project\ndomain: work\nsummary: KoliChat\n---\n## Open\n{items}\n"
     )
 
-    text = recall(hook(hub), config, now=NOW)
+    text = recall(hook(hub), config)
 
-    assert "- Item 7" in text
-    assert "- Item 8" not in text
-    assert "… 5 more in projects/ai-assistant-hub/ai-assistant-hub.md" in text
+    assert "## Project: ai-assistant-hub\nKoliChat" in text
+    assert "Item" not in text
+    assert "Open:" not in text

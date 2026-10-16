@@ -1,7 +1,6 @@
 """Story 6: knowledge notes, catalog, ranking and the domain boundary in the recall."""
 
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -10,8 +9,6 @@ from dory.config import Config
 from dory.project import project_for_root
 from dory.recall import recall
 from dory.state import StateDir
-
-NOW = datetime(2026, 10, 11, 12, 0)
 
 
 def make_repo(path: Path) -> Path:
@@ -92,7 +89,7 @@ def test_private_notes_never_reach_a_work_project_not_even_the_catalog(world):
     knowledge(vault, "general/taxes.md", [], domain="private", summary="Tax return due in March")
     knowledge(vault, "general/uv-instead-of-pip.md", [], summary="uv instead of pip")
 
-    text = recall(hook(repos["ai-assistant-hub"]), config, now=NOW)
+    text = recall(hook(repos["ai-assistant-hub"]), config)
 
     assert "Summary ai-assistant-hub-loki" in text
     assert "uv instead of pip" in text
@@ -116,7 +113,7 @@ def test_note_shared_by_two_projects_shows_summary_when_and_path(world):
         when="When deploying Loki",
     )
 
-    text = recall(hook(repos["ai-assistant-hub-infrastructure"]), config, now=NOW)
+    text = recall(hook(repos["ai-assistant-hub-infrastructure"]), config)
 
     assert "Loki only starts with UID 10001 on the volume." in text
     assert "When deploying Loki" in text
@@ -126,7 +123,7 @@ def test_note_shared_by_two_projects_shows_summary_when_and_path(world):
 def test_catalog_outside_a_repo_lists_shopping_list_and_invoices(world):
     config, _, home = world
 
-    text = recall(hook(home), config, now=NOW)
+    text = recall(hook(home), config)
 
     assert "## Catalog" in text
     assert "notes/shopping-list.md" in text
@@ -156,7 +153,7 @@ def test_ranking_pinned_then_sources_then_updated_and_superseded_never(world):
         knowledge(vault, f"{folder}/z-filler-{index:02}.md", project, updated="2026-01-01")
     small = Config(vault=vault, state_dir=config.state_dir, recall_budget_tokens=250)
 
-    text = recall(hook(repos["ai-assistant-hub"]), small, now=NOW)
+    text = recall(hook(repos["ai-assistant-hub"]), small)
 
     loaded = text.split("## Catalog")[0]
     order = ("a-pinned", "b-many", "c-recent", "d-old")
@@ -166,6 +163,25 @@ def test_ranking_pinned_then_sources_then_updated_and_superseded_never(world):
     assert "Summary z-filler-29" not in loaded  # budget ran out before the lowest-ranked
     assert "e-replaced" not in text
     assert len(text) <= 250 * 4
+
+
+def test_archived_notes_are_neither_loaded_nor_in_the_catalog(world):
+    config, repos, _ = world
+    folder = "projects/ai-assistant-hub"
+    knowledge(config.vault, f"{folder}/ai-assistant-hub-loki.md", ["ai-assistant-hub"])
+    knowledge(
+        config.vault,
+        f"{folder}/ai-assistant-hub-now-in-claude-md.md",
+        ["ai-assistant-hub"],
+        status="archived",
+    )
+    knowledge(config.vault, "general/old-shared.md", [], status="archived")
+
+    text = recall(hook(repos["ai-assistant-hub"]), config)
+
+    assert "Summary ai-assistant-hub-loki" in text
+    assert "now-in-claude-md" not in text
+    assert "old-shared" not in text
 
 
 def test_notes_that_did_not_fit_appear_in_the_catalog(world):
@@ -179,7 +195,7 @@ def test_notes_that_did_not_fit_appear_in_the_catalog(world):
             summary="Long summary " + "x" * 120,
         )
 
-    text = recall(hook(repos["ai-assistant-hub"]), config, now=NOW)
+    text = recall(hook(repos["ai-assistant-hub"]), config)
 
     loaded, catalog = text.split("## Catalog")
     names = [f"ai-assistant-hub-n{index:02}" for index in range(40)]
@@ -197,7 +213,7 @@ def test_private_project_loads_private_knowledge_and_lists(world):
         config.vault, "general/taxes.md", [], domain="private", summary="Tax return due in March"
     )
 
-    text = recall(hook(repos["haushalt"]), config, now=NOW)
+    text = recall(hook(repos["haushalt"]), config)
 
     assert "Tax return due in March" in text
     assert "notes/shopping-list.md" in text
@@ -207,7 +223,7 @@ def test_notes_of_other_projects_are_not_loaded(world):
     config, repos, _ = world
     knowledge(config.vault, "projects/teko/teko-x.md", ["teko"], summary="Only Teko")
 
-    text = recall(hook(repos["ai-assistant-hub"]), config, now=NOW)
+    text = recall(hook(repos["ai-assistant-hub"]), config)
 
     assert "Only Teko" not in text
 
@@ -217,7 +233,7 @@ def test_no_heading_without_content(world):
     knowledge(config.vault, "general/uv-instead-of-pip.md", [], summary="uv instead of pip")
 
     for cwd in (repos["ai-assistant-hub"], home):
-        lines = recall(hook(cwd), config, now=NOW).splitlines()
+        lines = recall(hook(cwd), config).splitlines()
         for index, line in enumerate(lines):
             if line.startswith("## "):
                 following = lines[index + 1] if index + 1 < len(lines) else ""

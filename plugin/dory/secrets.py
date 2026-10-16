@@ -20,7 +20,8 @@ _PATTERNS = [
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{16,}=*"),
     re.compile(r"(?i)\b(password|passwd|pwd)([\"']?\s*[:=]\s*)\S+"),
     re.compile(
-        r"(?i)\b([A-Z0-9_]*(?:token|secret|api[_-]?key|access[_-]?key)[A-Z0-9_]*)"
+        # Atomic: a long run of keyword-like text must not backtrack (quadratic time).
+        r"(?i)\b((?>[A-Z0-9_]*(?:token|secret|api[_-]?key|access[_-]?key)[A-Z0-9_]*))"
         r"([\"']?\s*[:=]\s*[\"']?)[A-Za-z0-9+/_.=-]{16,}"
     ),
 ]
