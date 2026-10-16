@@ -2,7 +2,7 @@
 
 ## Status
 
-Designed (2026-10-15)
+In Progress (2026-10-16): released in 0.3.0, except the vault cleanup (S5)
 
 ---
 

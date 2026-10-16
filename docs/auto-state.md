@@ -2,7 +2,7 @@
 
 ## Brake
 
-Entscheid: merge the pull request, tag v0.3.0, push the tag and install 0.3.0
+Waiting: the user starts the vault cleanup in a fresh session (0.3.0 is installed)
 
 ## Cut
 
@@ -35,7 +35,7 @@ each iteration
 |---|---|
 | Repo | `~/Development/cheorges/dory` |
 | Branch | `feat/note-quality` |
-| Return point | `57d5eda` on `origin/main`; the loop's work is on `feat/note-quality`, squashed into three commits and pushed for a pull request |
+| Return point | `21a4411` on `origin/main`: 0.3.0 merged and tagged. The vault cleanup writes into the vault, not the repository; its way back is the manual snapshot |
 | Quick round | `uv run pytest -q tests/<file the iteration touches>` |
 | Full proof | `uv run pytest -q && uv run ruff check .` (120 tests at setup, live checks deselected). Runs before every cut and as the first step of a fresh session |
 | Live checks | `DORY_LIVE=1 uv run pytest -m live` in iterations that change the worker or the rules (S1, S2). Real `claude -p` runs with Haiku in throwaway vaults; they count against the usage limit |
@@ -77,7 +77,7 @@ Acceptance criteria per story are in Record 002, `## User Stories`. Order by ris
 
 ## Open questions
 
-- **Release 0.3.0 (decision for the author, 2026-10-16).** The branch `feat/note-quality` is squashed into three commits and pushed, with a pull request to `main`; nothing tagged. The author merges the pull request, tags `v0.3.0` on `main`, pushes the tag, runs `claude plugin marketplace update brain && claude plugin update dory@brain` and restarts Claude Code. Once `claude plugin list` shows dory 0.3.0, the answer goes here and `## Brake` goes to `off`; the vault cleanup (S5, `## Next task`) then starts.
+- **Release 0.3.0: done (2026-10-16).** The pull request was merged into `main` (`21a4411`), `v0.3.0` is tagged and pushed, and `claude plugin list` shows dory 0.3.0. The vault cleanup (S5, `## Next task`) waits only for the user to start it in a fresh session; then `## Brake` goes to `off`.
 
 ## Last cut
 

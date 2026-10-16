@@ -14,13 +14,13 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Note quality and recall value (S1 to S7) | In Progress | [Record 002](docs/records/002-note-quality.md); build loop on `feat/note-quality`, state in `docs/auto-state.md` |
+| Vault cleanup to the 0.3.0 rules | Open | [Record 002](docs/records/002-note-quality.md), Story S5; task and loop state in `docs/auto-state.md`; can start, 0.3.0 is installed |
 
 **Legend:** Open | In Progress | Done
 
-Second Brain (Record 001, 10 stories) is released; versions are in [CHANGELOG.md](CHANGELOG.md), currently 0.3.0.
+Second Brain (Record 001) and Note quality (Record 002, all but the vault cleanup) are released; versions are in [CHANGELOG.md](CHANGELOG.md), currently 0.3.0.
 
-**Next Step:** Watch it in daily use: read the first real notes in `~/Documents/dory`, check `dory status`. Releasing: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, tag `vX.Y.Z`, push; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart.
+**Next Step:** Vault cleanup in a fresh session: `/kolibee:catchup`, tell the loop to start, `/auto-run on`; it snapshots the vault first and halts for review. Then watch what 0.3.0 writes in daily use: fewer notes, names after their statement, renames and deletions in `runs.log`. Releasing: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request, tag `vX.Y.Z` on `main` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart.
 
 ### Future
 
@@ -29,6 +29,7 @@ Second Brain (Record 001, 10 stories) is released; versions are in [CHANGELOG.md
 | Narrow the Bash grant in save/note | Medium | `/dory:save` and `/dory:note` allow any Bash command; note reads vault content | `allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/dory <command>:*)` as in search, live probe as in `tests/test_live_note.py` |
 | Configurable records folder | Low | The worker checks notes against `docs/records/` only (Record 002); public users keep decision records elsewhere, such as `docs/adr/` | A setting with the folders to capture, default `docs/records` |
 | Prune `work/` | Low | Every entry's `bundle.md`, with its condensed transcript, stays under `~/.local/state/dory-brain/work/` indefinitely | Keep the last N bundle directories, as the snapshots do |
+| Merge vault project `dory-brain` into `dory` | Low | Renaming the repository created a second project; the old notes stay under `projects/dory-brain/` and no longer load | Merge the folders, fix links and `paths`, point `projects.json` at the new path |
 
 ---
 
