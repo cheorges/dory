@@ -218,7 +218,7 @@ runs.log                         per run: entry, duration, cost, result
 - Lock via `fcntl.flock` on `worker.lock`; if it is taken, the process exits. After emptying the queue, release the lock, check the queue again, and start over if there are new entries.
 - Per entry, oldest first, at most one attempt per pass:
   1. `condense`, project detection.
-  2. **Input bundle** `work/<id>/bundle.md`: project facts (name, main path, domain), the repo's CLAUDE.md (truncated), file names and titles from `docs/records/`, condensed transcript. The run never gets access to the repo itself.
+  2. **Input bundle** `work/<id>/bundle.md`: project facts (name, main path, domain), the repo's CLAUDE.md (truncated), file names and titles from `docs/records/`, condensed transcript. The run never gets access to the repo itself. Since Record 002 the bundle holds an index instead of the truncated CLAUDE.md: redacted copies of the CLAUDE.md and the records, captured when the session is queued, sit in `work/<id>/repo/`; still no access to the repository itself.
   3. Snapshot of the vault (`cp -cR`), delete the oldest beyond `snapshots_keep`.
   4. Call with `DORY_WORKER=1`, working directory = vault (flags confirmed in the spike, see "Spike Results"):
      ```bash

@@ -1,6 +1,6 @@
 # 🐠 Dory
 
-A memory for Claude Code. When a session ends, a background process writes what was learned in it as notes into an Obsidian vault. When a new session starts, Claude gets the relevant part back: where the project stands, what happened in the last sessions, and what is already known about it.
+A memory for Claude Code. When a session ends, a background process writes what was learned in it as notes into an Obsidian vault. When a new session starts, Claude gets back what is already known: the pitfalls, decisions and facts of the project and the ones that apply everywhere.
 
 The notes are plain Markdown, so you can browse them in Obsidian. They are written in the language you configure, English by default.
 
@@ -10,10 +10,11 @@ The notes are plain Markdown, so you can browse them in Obsidian. They are writt
 
 - **When a session ends** (`/exit`, `/clear`, closing the tab, Ctrl+C), it goes into a queue. A worker processes it in the background with `claude -p` and writes:
   - a session note: what was done, which notes came out of it, what is still open
-  - knowledge notes: one insight each that will help in a later session (decision, gotcha, how-to, fact, preference). If a note on the topic already exists, it is extended rather than duplicated. If the new insight contradicts an old one, the old note is marked as superseded.
-  - the project overview with its open items
+  - knowledge notes, only for what really matters: a pitfall, a decision the repository does not record, a fact about a system outside the code (decision, gotcha, how-to, fact, preference). Most sessions yield none. A note is named after what it says (`Loki startet nur, wenn UID 10001 das Datenverzeichnis besitzt.md`) and states the current state without progress, effort or commit hashes. What the project's CLAUDE.md already says does not become a note, and what a record says becomes at most a short pointer to the record.
+  - notes kept current: a note on the same topic is extended rather than duplicated; when a session shows it is wrong, it is corrected and gets a new title, and dory renames the file and every link to it. A note whose content the CLAUDE.md now states is deleted and leaves the project overview, unless another project lists it too.
+  - the project overview with its knowledge notes and sessions
   - changes to lists such as the shopping list, if the session touched them
-- **When a session starts**, a hook injects what Claude should know: the project and its open items, the last three sessions with their age, the project's knowledge notes and matching knowledge from elsewhere. Whatever does not fit the budget is listed with its path in a catalog.
+- **When a session starts**, a hook injects what Claude should know: the project, its knowledge notes and matching knowledge from elsewhere. Whatever does not fit the budget is listed with its path in a catalog. Sessions of the project still waiting in the queue are listed with the path to their transcript. What happened in recent sessions is not injected: you know it, and `/dory:search` finds it.
 
 ### Commands in Claude Code
 
@@ -82,7 +83,6 @@ Change these only if you have a reason.
 | Setting | Default | Purpose |
 |---|---|---|
 | `recall_budget_tokens` | `1500` | What a session start injects sits in the context of every session. More costs every session; less pushes knowledge notes into the catalog, where only their path appears. |
-| `short_term_sessions` | `3` | How many recent sessions of the project appear at start. More takes budget from knowledge notes; fewer loses the thread after a break. |
 | `min_user_messages` | `3` | Sessions with fewer messages from you are skipped, so a quick question does not cost a worker run. Counted over the whole session. |
 | `condense_max_tokens` | `30000` | Upper limit for the condensed transcript the worker reads. Longer sessions keep their beginning and end; the middle is cut. |
 | `worker_timeout_minutes` | `10` | Without a network, `claude -p` hangs instead of failing. The timeout stops it so the queue keeps moving. Real runs take 20 to 60 seconds. |
@@ -113,6 +113,7 @@ One worker runs at a time (file lock). For each entry:
 2. The vault is snapshotted (see [Undoing a change](#undoing-a-change)).
 3. `claude -p` processes the bundle with the writing rules from `plugin/skills/rules/SKILL.md`. The run is restricted (`--restricted`): it sees only the vault and its own bundle, no CLAUDE.md, no settings, no other plugins.
 4. A run only counts as a success if the session note exists. On a rate limit or network error the entry stays in the queue and is retried next time. After three real failures it moves to `failed/`, which `dory status` shows.
+5. After a successful run, dory carries out what the run marked but cannot do itself: it renames a corrected note to its new title (`rename_to`) and deletes a note marked `status: archived`, and rewrites or removes every link to them in the vault. It acts only on marks the run itself wrote: a mark left by a run that failed is reset. It touches only knowledge notes, skips a note whose file name another note shares, and deletes only a note that belongs to the session's project alone. Each rename or deletion is all or nothing: if a file cannot be written, the files already changed are put back and the mark is reset, and `dory status` shows the failure as the last error. `runs.log` lists each change.
 
 ### Projects
 
@@ -124,7 +125,7 @@ Every note has `domain: work` or `private`. In a session in a work project, the 
 
 ### Ranking at start
 
-Pinned notes first (`pinned: true`), then those with the most sources, then the most recently updated. Superseded notes are never loaded.
+Pinned notes first (`pinned: true`), then those with the most sources, then the most recently updated. Superseded notes from earlier versions and notes marked for deletion are never loaded, and `/dory:search` does not show them either.
 
 ## The vault
 
@@ -132,10 +133,11 @@ Pinned notes first (`pinned: true`), then those with the most sources, then the 
 <vault>/
   projects/
     ai-assistant-hub/
-      ai-assistant-hub.md                    project overview (open items, knowledge, sessions)
-      ai-assistant-hub-loki-uid-10001.md     knowledge note
+      ai-assistant-hub.md                    project overview (knowledge, sessions)
+      Loki startet nur, wenn UID 10001 das Datenverzeichnis besitzt.md
+                                             knowledge note, named after what it says
   general/
-    uv-instead-of-pip.md                     knowledge without a project
+    Python-Pakete mit uv statt pip.md        knowledge without a project
   notes/
     shopping-list.md                         list
     invoices.md                              register
@@ -147,11 +149,11 @@ All notes are Obsidian Flavored Markdown with properties in the frontmatter and 
 
 ### Undoing a change
 
-The vault has no git. Before every write, dory takes a snapshot (an APFS clone, the last 50 are kept). Restore a file from there:
+The vault has no git. Before every write, dory takes a snapshot (an APFS clone, the last 50 are kept). It is also the way back for a note dory renamed or deleted. Restore a file from there:
 
 ```bash
 ls ~/.local/state/dory-brain/snapshots/
-cp ~/.local/state/dory-brain/snapshots/<timestamp>/projects/x/x-topic.md ~/Documents/dory/projects/x/
+cp ~/.local/state/dory-brain/snapshots/<timestamp>/projects/x/"<title>.md" ~/Documents/dory/projects/x/
 ```
 
 ## Cost

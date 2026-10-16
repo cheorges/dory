@@ -171,3 +171,10 @@ def test_save_with_an_empty_session_id_is_an_error(tmp_path):
 
     assert result.returncode == 1
     assert "not found" in result.stdout
+
+
+def test_session_end_hook_may_take_longer_than_the_default_budget():
+    hooks = json.loads((ROOT / "plugin" / "hooks" / "hooks.json").read_text())["hooks"]
+    [enqueue] = [h for group in hooks["SessionEnd"] for h in group["hooks"]]
+
+    assert enqueue["timeout"] >= 10  # Claude Code kills SessionEnd hooks after 1.5 s otherwise

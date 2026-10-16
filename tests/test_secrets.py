@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from dory.secrets import REDACTED, redact
@@ -31,3 +33,12 @@ def test_ordinary_text_is_left_alone():
     text = "Loki runs on port 3100, the token refresh happens every 5 minutes."
 
     assert redact(text) == text
+
+
+def test_long_keyword_runs_are_redacted_in_linear_time():
+    text = "# Record\n\n" + "secret" * 33_000
+
+    started = time.monotonic()
+    redact(text)
+
+    assert time.monotonic() - started < 1.0
