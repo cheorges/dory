@@ -1,15 +1,17 @@
 """SessionStart: build the memory that is injected into a new session.
 
 Priority within the token budget (record 001, component 8):
-1. project line and open items from the project overview
-2. the last sessions of this project, with their age
-3. sessions of this project still waiting in the queue
-4. knowledge notes of this project: summary, when, path
-5. cross-project knowledge notes of the matching domain
-6. catalog: project notes that did not fit, plus all lists and registers
+1. project line with the summary of the project overview
+2. sessions of this project still waiting in the queue: their knowledge is not in the vault yet
+3. knowledge notes of this project: summary, when, path
+4. cross-project knowledge notes of the matching domain
+5. catalog: project notes that did not fit, plus all lists and registers
 
-Knowledge is ranked by pinned, then number of sources, then updated; superseded notes are
-never loaded. In a work project nothing with domain private appears, not even in the
+What happened in recent sessions is not injected: the user knows it, and git, the CLAUDE.md
+and /dory:search answer it on demand. The session start carries what nobody would ask for.
+
+Knowledge is ranked by pinned, then number of sources, then updated; superseded and archived
+notes are never loaded. In a work project nothing with domain private appears, not even in the
 catalog; outside a repository both domains do. The boundary filters what is injected, it is
 no access control: Claude can still read the vault.
 """
@@ -18,12 +20,12 @@ import contextlib
 import json
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 from dory import queue
 from dory.config import Config
-from dory.frontmatter import body, read_frontmatter
+from dory.frontmatter import read_frontmatter
 from dory.project import Project, lookup_project
 from dory.state import StateDir
 
@@ -35,7 +37,6 @@ _SKIP_DIRS = {".obsidian", ".trash", ".git"}
 _KNOWLEDGE_TYPES = {"decision", "gotcha", "howto", "fact", "preference"}
 _CATALOG_TYPES = {"list", "register"}
 _CATALOG_SHARE = 0.2  # of the budget, held back while knowledge loads
-_MAX_OPEN_ITEMS = 7  # the overview keeps more; the rest of the budget belongs to knowledge
 
 
 @dataclass(frozen=True)
@@ -49,15 +50,6 @@ class Note:
         return [str(item).strip("[]") for item in value] if isinstance(value, list) else []
 
     @property
-    def date(self) -> datetime | None:
-        try:
-            parsed = datetime.fromisoformat(str(self.meta.get("date", "")))
-        except ValueError:
-            return None
-        # Mixed naive and offset dates would break sorting; compare everything in local time.
-        return parsed.astimezone().replace(tzinfo=None) if parsed.tzinfo else parsed
-
-    @property
     def type(self) -> str:
         return str(self.meta.get("type", ""))
 
@@ -68,12 +60,19 @@ class Note:
         return str(self.meta.get("domain") or default)
 
     @property
-    def superseded(self) -> bool:
-        return self.meta.get("status") == "superseded" or bool(self.meta.get("superseded_by"))
+    def retired(self) -> bool:
+        """Superseded by a newer note, or archived because the repository now documents it."""
+        status = self.meta.get("status")
+        return status in ("superseded", "archived") or bool(self.meta.get("superseded_by"))
+
+    @property
+    def holds_knowledge(self) -> bool:
+        """A knowledge note by its type, whatever its status."""
+        return self.type in _KNOWLEDGE_TYPES
 
     @property
     def is_knowledge(self) -> bool:
-        return self.type in _KNOWLEDGE_TYPES and not self.superseded
+        return self.holds_knowledge and not self.retired
 
     @property
     def rank(self) -> tuple:
@@ -116,13 +115,12 @@ class _Budget:
         return True
 
 
-def recall(hook: dict, config: Config, now: datetime | None = None) -> str:
+def recall(hook: dict, config: Config) -> str:
     """Return the additionalContext text, or "" when nothing should be injected."""
     state = StateDir(config.state_dir).ensure()
     _remember_session(state, hook)
     if hook.get("source") == "resume":
         return ""
-    now = now or datetime.now()
     cwd = Path(hook.get("cwd") or ".")
     project = lookup_project(cwd, state.projects_file)  # never writes: hooks run in parallel
     notes = scan(config.vault)
@@ -133,7 +131,6 @@ def recall(hook: dict, config: Config, now: datetime | None = None) -> str:
     context = _fill(
         [
             _project_section(project, notes, config.vault),
-            _sessions_section(project, notes, config, now),
             _queue_section(project, cwd, state),
         ],
         budget,
@@ -223,38 +220,7 @@ def _project_section(project: Project | None, notes: list[Note], vault: Path) ->
     title = f"## Project: {project.name}"
     if meta.get("summary"):
         title += f"\n{meta['summary']}"
-    open_items = _section_bullets(body(overview), "Open")
-    if len(open_items) > _MAX_OPEN_ITEMS:
-        rest = len(open_items) - _MAX_OPEN_ITEMS
-        hint = f"- (… {rest} more in {overview.relative_to(vault)})"
-        open_items = [*open_items[:_MAX_OPEN_ITEMS], hint]
-    if open_items:
-        title += "\n\nOpen:"
-    return _Section(title, open_items, bare=True)
-
-
-def _sessions_section(
-    project: Project | None, notes: list[Note], config: Config, now: datetime
-) -> _Section:
-    def belongs(note: Note) -> bool:
-        if project is None:
-            return not note.projects
-        return bool(project.name) and project.name in note.projects
-
-    sessions = [n for n in notes if n.meta.get("type") == "session" and belongs(n) and n.date]
-    sessions.sort(key=lambda n: (n.date, n.path.name), reverse=True)
-    latest: dict[str, Note] = {}
-    for note in sessions:
-        key = str(note.meta.get("session_id") or note.path)
-        latest.setdefault(key, note)  # newest part of each session
-        if len(latest) == config.short_term_sessions:
-            break
-    title = "## Recent sessions" if project else "## Recent sessions without a project"
-    entries = [
-        f"- {_age(note.date, now)}: {note.meta.get('summary', '')} [[{note.path.stem}]]"
-        for note in latest.values()
-    ]
-    return _Section(title, entries)
+    return _Section(title, [], bare=True)
 
 
 def _queue_section(project: Project | None, cwd: Path, state: StateDir) -> _Section:
@@ -307,30 +273,6 @@ def _catalog(unloaded: list[Note], domain: str | None, notes: list[Note], vault:
     )
     entries = [f"- {n.path.stem}: {n.path.relative_to(vault)}" for n in [*lists, *unloaded]]
     return _Section("## Catalog (not loaded; read if needed or use /dory:search)", entries)
-
-
-def _section_bullets(text: str, heading: str) -> list[str]:
-    bullets, inside = [], False
-    for line in text.splitlines():
-        if line.startswith("## "):
-            inside = line[3:].strip() == heading
-            continue
-        if inside and line.lstrip().startswith("- "):
-            bullets.append(line.strip())
-    return bullets
-
-
-def _age(date: datetime, now: datetime) -> str:
-    days = (now.date() - date.date()).days
-    if days <= 0:
-        return "today"
-    if days == 1:
-        return "yesterday"
-    if days < 14:
-        return f"{days} days ago"
-    if days < 60:
-        return f"{days // 7} weeks ago"
-    return f"{days // 30} months ago"
 
 
 def _fill(sections: list[_Section], budget: _Budget) -> list[str]:

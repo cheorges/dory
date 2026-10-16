@@ -124,6 +124,20 @@ def test_superseded_notes_are_not_offered(world):
     assert "loki-alt" not in search(config, hub, "loki deploy")
 
 
+def test_archived_notes_are_not_offered(world):
+    config, hub, _ = world
+    knowledge(
+        config.vault,
+        "projects/ai-assistant-hub/ai-assistant-hub-loki-volume.md",
+        "Loki needs its volume owned by UID 10001.",
+        "When deploying Loki",
+        projects='["[[ai-assistant-hub]]"]',
+        status="archived",
+    )
+
+    assert "loki-volume" not in search(config, hub, "loki deploy")
+
+
 def test_cli_search_runs_in_the_current_directory(world):
     config, hub, _ = world
     env = {**os.environ, "DORY_VAULT": str(config.vault), "DORY_STATE_DIR": str(config.state_dir)}

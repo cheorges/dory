@@ -3,7 +3,8 @@
 Every word of the query is matched as a substring (case-insensitive), so "deploy" finds
 "Deployen". A hit in summary or when weighs most, then tags and file name, then the text.
 Notes that match more words come first. The domain boundary of the recall applies, and
-superseded notes are left out: their successor carries the knowledge.
+superseded and archived notes are left out: their successor or the repository carries the
+knowledge.
 """
 
 from pathlib import Path
@@ -23,7 +24,7 @@ def search(config: Config, cwd: Path, query: str) -> str:
     project = lookup_project(cwd, StateDir(config.state_dir).projects_file)  # read-only
     notes = scan(config.vault)
     domain = project_domain(project, notes, config.vault)
-    candidates = [n for n in notes if allowed(n, domain) and not n.superseded]
+    candidates = [n for n in notes if allowed(n, domain) and not n.retired]
     scored = [(score, note) for note in candidates if (score := _score(note, terms))[0]]
     if not scored:
         return f'No hits for "{query}" in the vault {config.vault}.'

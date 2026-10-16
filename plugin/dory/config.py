@@ -17,7 +17,6 @@ class Config:
     model: str = "sonnet"
     language: str = "English"  # language the notes are written in
     recall_budget_tokens: int = 1500
-    short_term_sessions: int = 3
     min_user_messages: int = 3
     condense_max_tokens: int = 30_000
     worker_timeout_minutes: int = 10
