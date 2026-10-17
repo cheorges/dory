@@ -13,4 +13,4 @@ Estimated against actual time per iteration. Actual times come from the herdr jo
 | S2: writing rules | 2 | 2026-10-15 14:55 | 15:25 | 34 min / 0.6 min | ok 15:30 | estimate raised from 1.5 after the design review; includes 154 live worker runs (control runs on the old rules, two review fixes reproduced before and after) and a second review pass |
 | S7: living notes with telling names | 3 | 2026-10-16 11:56 | 13:03 | 72 min / 50 min | ok 13:58 | five review passes, the retry mechanism built and removed again, the language check fixed in a third attempt; human time includes reading the review packages and two decisions |
 | S6: release 0.3.0 prepared | 0.2 | 2026-10-15 15:30 | 15:45 | 19 min / not measurable | ok 2026-10-16 08:42 | human time spans the pause for the usage limit and the night; includes two review rounds on the CHANGELOG text |
-| S5: clean up the existing vault | 0.5 | | | | | estimate raised from 0.3 after the design review |
+| S5: clean up the existing vault | 0.5 | | | | | dropped on 2026-10-17: a fresh vault instead (Record 002, decision 4); the reset took a few minutes and is not measured |

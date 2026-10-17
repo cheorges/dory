@@ -14,13 +14,13 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Vault cleanup to the 0.3.0 rules | Open | [Record 002](docs/records/002-note-quality.md), Story S5; task and loop state in `docs/auto-state.md`; can start, 0.3.0 is installed |
+| Test 0.3.0 in daily use | In Progress | Fresh vault since 2026-10-17, it holds only what 0.3.0 writes ([Record 002](docs/records/002-note-quality.md), decision 4); the old vault is in `~/.local/state/dory-brain/manual-snapshots/` |
 
 **Legend:** Open | In Progress | Done
 
-Second Brain (Record 001) and Note quality (Record 002, all but the vault cleanup) are released; versions are in [CHANGELOG.md](CHANGELOG.md), currently 0.3.0.
+Second Brain (Record 001) and Note quality (Record 002) are released; versions are in [CHANGELOG.md](CHANGELOG.md), currently 0.3.0.
 
-**Next Step:** Vault cleanup in a fresh session: `/kolibee:catchup`, tell the loop to start, `/auto-run on`; it snapshots the vault first and halts for review. Then watch what 0.3.0 writes in daily use: fewer notes, names after their statement, renames and deletions in `runs.log`. Releasing: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request, tag `vX.Y.Z` on `main` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart.
+**Next Step:** Watch what 0.3.0 writes into the fresh vault: few knowledge notes, names after their statement, renames and deletions in `runs.log`. A run used 0.3.0 if its `~/.local/state/dory-brain/work/<entry>/task.md` opens with "Write every note in German". Sessions that started before an update are still processed by the old worker when they end, until `/reload-plugins` in them. Releasing: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request, tag `vX.Y.Z` on `main` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
 
 ### Future
 
@@ -29,7 +29,6 @@ Second Brain (Record 001) and Note quality (Record 002, all but the vault cleanu
 | Narrow the Bash grant in save/note | Medium | `/dory:save` and `/dory:note` allow any Bash command; note reads vault content | `allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/bin/dory <command>:*)` as in search, live probe as in `tests/test_live_note.py` |
 | Configurable records folder | Low | The worker checks notes against `docs/records/` only (Record 002); public users keep decision records elsewhere, such as `docs/adr/` | A setting with the folders to capture, default `docs/records` |
 | Prune `work/` | Low | Every entry's `bundle.md`, with its condensed transcript, stays under `~/.local/state/dory-brain/work/` indefinitely | Keep the last N bundle directories, as the snapshots do |
-| Merge vault project `dory-brain` into `dory` | Low | Renaming the repository created a second project; the old notes stay under `projects/dory-brain/` and no longer load | Merge the folders, fix links and `paths`, point `projects.json` at the new path |
 
 ---
 
@@ -44,6 +43,7 @@ Second Brain (Record 001) and Note quality (Record 002, all but the vault cleanu
 | 2026-10-12 | Marketplace named `brain`, plugin installed as `dory@brain`, also on the author's machine from GitHub | Short install command; the author runs exactly what users get, so changes need a push and `plugin update` |
 | 2026-10-15 | Session start injects knowledge only: no open items, no recent sessions ([Record 002](docs/records/002-note-quality.md)) | Both repeat what the CLAUDE.md, `git log` and handover notes already say, and open items go stale because the worker only sees transcripts; the start should bring what one would not know to ask for |
 | 2026-10-16 | Knowledge notes only when they really matter, named after their core statement; a stale note is corrected and renamed, a note the CLAUDE.md covers is deleted ([Record 002](docs/records/002-note-quality.md), decision 6) | The vault is a living second brain: the project view shows only what holds now; history lives in the session logs and the snapshots. 15 of 15 sessions had produced notes, a third of them describing the code |
+| 2026-10-17 | Fresh vault instead of cleaning up the old one; only what 0.3.0 wrote stays ([Record 002](docs/records/002-note-quality.md), decision 4) | The old content had vanished from the vault on 2026-10-16 (cause unknown, not dory), and what two pre-update sessions wrote followed the 0.2.0 rules; a vault 0.3.0 writes alone shows what it does. The old vault stays as a manual snapshot |
 
 The design decisions of 2026-10-09 (one global memory, Obsidian, vault without git, project = git repo, one rules skill) are in [Record 001](docs/records/001-second-brain.md).
 

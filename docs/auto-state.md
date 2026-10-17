@@ -2,7 +2,7 @@
 
 ## Brake
 
-Waiting: the user starts the vault cleanup in a fresh session (0.3.0 is installed)
+Waiting: nothing left. The loop ended on 2026-10-17; the vault cleanup gave way to a fresh vault (Record 002, decision 4)
 
 ## Cut
 
@@ -10,20 +10,7 @@ not due
 
 ## Next task
 
-Iteration S5: clean up the existing vault. Acceptance criteria: Record 002 (`docs/records/002-note-quality.md`), `### Story S5`, six criteria; the plan is under `### Cleaning up the existing vault (decision 4)`, the note rules under `### Living notes (decision 6)`.
-
-Precondition, checked first: `claude plugin list` shows dory 0.3.0. If it does not, stop with `Frage:` under `## Brake`: the 0.2.0 worker would keep writing `## Open` sections, long notes and prefixed names, also for this session.
-
-This is the one iteration that writes into the real vault `~/Documents/dory` (note language German, from the real config). By hand, following `plugin/skills/rules/SKILL.md`; no worker run. Renames and deletions go through `dory.vaultops` (`rename_note`, `delete_note`, run with `uv run python` from the repository), so every link follows; never move or delete a note with the shell.
-
-1. Snapshot first: `cp -cR ~/Documents/dory ~/.local/state/dory-brain/manual-snapshots/<UTC timestamp>`; name it in the implementation log.
-2. Every project overview under `projects/*/` loses its `## Open` section.
-3. Every knowledge note of ai-assistant-hub and ai-assistant-hub-infrastructure is checked against both CLAUDE.md files (`~/Development/kolibee/ai-assistant-hub/CLAUDE.md` and `~/Development/kolibee/ai-assistant-hub/ai-assistant-hub-infrastructure/CLAUDE.md`, a repository nested inside the hub folder), their `docs/records/` and the bar of decision 6. Outcomes: deleted (stated in the CLAUDE.md of every project the note lists; held by a record and relevant only to its feature; only describes the code; superseded); shortened to a pointer note (held by a record, relevant beyond it); corrected (contradicting notes merged into one, e.g. the two on how the quota warning mail is sent); kept. Every remaining note: current state, no project status, no bare identifiers, body under 1,200 characters, and its core statement in German as file name (`rename_note`). The matrix design note `ai-assistant-hub-leistungsmatrix-design.md` becomes the current decision in a few sentences with a pointer to records 041 and 042.
-4. The implementation log lists each note with its outcome (kept, renamed, shortened to a pointer, corrected, deleted).
-5. Checks: no `## Open` in the overviews; no knowledge note name starting with a project name; every `[[link]]` in the vault resolves to a file; a simulated session start for both hub repositories has no bare identifier (the judge `bare_identifiers` in `tests/test_live_rules.py`):
-   `echo '{"session_id":"sim","transcript_path":"/x/sim.jsonl","cwd":"<repo path>","source":"startup"}' | plugin/bin/dory recall`
-
-Then the full proof, `/kolibee:do-review` on the vault changes (`diff -r` against the snapshot), review package, halt. Not part of this iteration: the old project `dory-brain` next to `dory`. The vault has no git: the snapshot is the way back.
+None. S5 became a reset of the vault on 2026-10-17 (Record 002, decision 4); every step of the queue is done.
 
 ## Review
 
@@ -57,7 +44,7 @@ Acceptance criteria per story are in Record 002, `## User Stories`. Order by ris
 | S2: writing rules | 2 | Record 002, Story S2: eight live checks, each three of three runs with a positive control, plus the unit test that archived notes are skipped by recall and search | fertig |
 | S7: living notes with telling names | 3 | Record 002, Story S7: no knowledge note from a plain build session, file names as core statement, correction renames in place, covered notes deleted; dory renames, deletes and rewrites links after the run; eight criteria | fertig |
 | S6: release 0.3.0 prepared | 0.2 | Record 002, Story S6: version 0.3.0 in three files, CHANGELOG entry; committed, not tagged, not pushed. Then halt: the author merges, tags, pushes and installs 0.3.0 | fertig |
-| S5: clean up the existing vault | 0.5 | Record 002, Story S5: only after 0.3.0 is installed; manual snapshot outside the rotation; matrix note rewritten, no `## Open` in overviews, hub notes checked and archived or shortened, no bare identifiers in a simulated session start | offen |
+| S5: fresh vault instead of the cleanup | 0.5 | Record 002, decision 4 as changed on 2026-10-17: vault and old snapshot copied to `manual-snapshots/`, the 9 files of the 0.2.0 worker deleted, the 2 of 0.3.0 kept, every link resolves | fertig |
 
 ## History
 
@@ -74,10 +61,11 @@ Acceptance criteria per story are in Record 002, `## User Stories`. Order by ris
 | 2026-10-16 | S6 | Version 0.3.0 in the three version files and `uv.lock`, CHANGELOG entry checked against the branch code; two reviewers, 1 P2 and 3 P3 in the CHANGELOG text fixed, second pass clean; ok by the user; halt for merge, tag, push and install |
 | 2026-10-16 | decision 6 | User decisions before the release: knowledge notes only when they really matter, names after the core statement without project prefix (way B), stale notes corrected in place and renamed, notes the CLAUDE.md covers deleted (option 2: "the second brain lives"); all in 0.3.0. Record 002 got decision 6, the solution and Story S7; S5 adapted. Release halt moved behind S7 |
 | 2026-10-16 | S7 | Living notes: knowledge notes only when they really matter (a build session yields none), names after the core statement, correction renames in place, covered notes deleted; dory's `vaultops` carries out the marks after a successful run, all or nothing, only marks the run wrote; the task file opens with the note language. 164 unit tests, live suite 28 of 28, language check 12 of 12; five review passes, the retry mechanism built and removed again; ok by the user |
+| 2026-10-17 | S5 | The old content had vanished from the vault on 2026-10-16 (cause unknown, not dory); user decision: fresh vault instead of restoring and cleaning up. Vault and the old 43-note snapshot copied to `manual-snapshots/`; the 9 files the 0.2.0 worker wrote afterwards deleted, the 2 of 0.3.0 kept; every link resolves. Loop finished |
 
 ## Open questions
 
-- **Release 0.3.0: done (2026-10-16).** The pull request was merged into `main` (`21a4411`), `v0.3.0` is tagged and pushed, and `claude plugin list` shows dory 0.3.0. The vault cleanup (S5, `## Next task`) waits only for the user to start it in a fresh session; then `## Brake` goes to `off`.
+- **Release 0.3.0: done (2026-10-16).** The pull request was merged into `main` (`21a4411`), `v0.3.0` is tagged and pushed, and `claude plugin list` shows dory 0.3.0. The vault cleanup (S5) gave way to a fresh vault on 2026-10-17.
 
 ## Last cut
 

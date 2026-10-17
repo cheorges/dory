@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress (2026-10-16): released in 0.3.0, except the vault cleanup (S5)
+Done (2026-10-17): released in 0.3.0; the vault cleanup (S5) gave way to a fresh vault (decision 4)
 
 ---
 
@@ -103,6 +103,8 @@ Option B. Records are not loaded at session start; without a pointer, a pitfall 
 #### Decision
 
 Option A. The outdated matrix summary is injected into every ai-assistant-hub session today, and the new rules only reach a note when a later session extends it. Taken as recommended in the decision table of 2026-10-15; can be changed at the review of the design.
+
+**Changed by the user on 2026-10-17: a fresh vault instead.** On 2026-10-16 between 11:46 and 14:32 (local time) every folder of `~/Documents/dory` except `.obsidian/` disappeared, 43 notes in all. The cause is unknown. It was not dory: the 19 worker runs in the vault used only Read, Write, Edit, Glob and Grep, and dory's code deletes no folders; `~/Documents` is not synced with iCloud. Afterwards two hub sessions that had started before the update ran the 0.2.0 worker and wrote 9 files by the old rules. The user had those deleted too and kept only what 0.3.0 wrote (the release session's note and the dory overview), so that 0.3.0 is tested on a vault it writes alone. The old vault is kept in `~/.local/state/dory-brain/manual-snapshots/20261016T090358093429Z-old-vault`, the vault before the reset in `.../manual-snapshots/20261017T092800Z-before-reset`.
 
 ### Decision 5: Recent sessions at session start
 
@@ -228,6 +230,8 @@ Existing `superseded` notes of 0.2.0 vaults stay as they are and stay hidden; th
 
 ### Cleaning up the existing vault (decision 4)
 
+Dropped on 2026-10-17 for a fresh vault (decision 4). The plan stays here for reference.
+
 By hand, in a session, **after 0.3.0 is pushed and installed**. Before that, the installed 0.2.0 worker keeps writing `## Open` sections and long notes, including for the cleanup session itself, which the `SessionEnd` hook queues. The snapshot goes to `~/.local/state/dory-brain/manual-snapshots/<timestamp>` (`cp -cR`), outside the rotation that keeps only the last 50 worker snapshots.
 
 - `projects/ai-assistant-hub/ai-assistant-hub-leistungsmatrix-design.md`: rewritten to the current decision in a few sentences with a pointer to records 041 and 042; `summary` matches the body.
@@ -238,7 +242,7 @@ By hand, in a session, **after 0.3.0 is pushed and installed**. Before that, the
 
 ### Not part of this record
 
-- Moving the old project `dory-brain` to `dory` after the repository was renamed; that question is still open with the user.
+- Moving the old project `dory-brain` to `dory` after the repository was renamed; moot since 2026-10-17, the fresh vault no longer holds the old project.
 - A setting for the records folder: public users keep decision records in other places, such as `docs/adr/`. Future table.
 - Pruning `work/`: every entry's `bundle.md`, with its condensed transcript, stays there indefinitely, as before this record. Future table.
 - Telling the worker the user's name, so that "Gregor" in a transcript can become "the user".
@@ -376,4 +380,4 @@ Order by risk and value: S3 and S4 change the session start deterministically an
 - [ ] Given the cleaned vault, when a session start is simulated for both hub projects, then the injected text has no identifier without its subject, such as a bare "S1", "F2", "E10" or "R9".
 
 **Priority:** Medium
-**Status:** Pending
+**Status:** Dropped (2026-10-17): the vault was reset instead, see decision 4
