@@ -3,16 +3,14 @@
 import argparse
 import json
 import os
-import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dory import __version__, ingest, note, ops, queue, recall, search, worker
+from dory import __version__, ingest, note, ops, queue, recall, search, summarize, worker
 from dory.config import load_config
+from dory.spawn import spawn_worker
 from dory.state import StateDir
-
-PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -25,6 +23,9 @@ def main(argv: list[str] | None = None) -> int:
     work = commands.add_parser("worker", help="drain the queue")
     work.add_argument("--dry-run", action="store_true", help="only write the input bundles")
     commands.add_parser("prepare-note", help="/dory:note: snapshot and context for writing")
+    add = commands.add_parser("add-note", help="/dory:note: append the user's note to a notes.md")
+    add.add_argument("--scope", required=True, help="project, general or private")
+    add.add_argument("text", nargs="*", help="the note; read from stdin when left out")
     find = commands.add_parser("search", help="/dory:search: find notes in the vault")
     find.add_argument("query", nargs="+")
     commands.add_parser("status", help="queue, failures, last error and costs")
@@ -40,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "prepare-note":
         print(note.prepare_note(load_config(), Path.cwd()))
         return 0
+    if args.command == "add-note":
+        return _add_note(args.scope, " ".join(args.text) if args.text else sys.stdin.read())
     if args.command == "search":
         print(search.search(load_config(), Path.cwd(), " ".join(args.query)))
         return 0
@@ -49,6 +52,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "retry":
         return _retry()
     return _worker(dry_run=args.dry_run)
+
+
+def _add_note(scope: str, text: str) -> int:
+    config = load_config()
+    try:
+        written = note.add_note(config, Path.cwd(), scope, text)
+    except note.NoteError as error:
+        print(f"dory add-note: {error}", file=sys.stderr)
+        return 1
+    print(f"Noted in {written.as_posix()} (vault {config.vault})")
+    return 0
 
 
 def _enqueue_from_hook(raw: str) -> int:
@@ -127,18 +141,6 @@ def _log_hook_error(step: str, error: Exception) -> None:
     print(f"dory {step}: {error!r}", file=sys.stderr)
 
 
-def spawn_worker() -> None:
-    if os.environ.get("DORY_NO_SPAWN") == "1":
-        return
-    subprocess.Popen(
-        [str(PLUGIN_ROOT / "bin" / "dory"), "worker"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-
-
 def _retry() -> int:
     moved = ops.retry(StateDir(load_config().state_dir))
     if moved is None:
@@ -157,7 +159,8 @@ def _worker(*, dry_run: bool) -> int:
             print(bundle)
         return 0
     state = StateDir(config.state_dir)
-    print(f"dory worker: {worker.run(state, ingest.make_process(config, state))}")
+    process = ingest.make_process(config, state)
+    print(f"dory worker: {worker.run(state, process, summarize.make_summarize(config, state))}")
     return 0
 
 

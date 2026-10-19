@@ -462,3 +462,216 @@ Final state: 164 unit tests green, ruff clean; on the final code the whole live 
 - Kept: `projects/dory/dory.md` and the release session's note.
 
 **Checked.** Every `[[link]]` in the vault resolves. A simulated session start for the hub repository injects only the project line with "(no project overview in the vault yet)". The API key that appeared in a hub session's chat is in neither vault nor bundle; the bundle has `[REDACTED]` in its place.
+
+## Record 003, design: one knowledge file per project (2026-10-19)
+
+**User story.** As the author, I want a reviewed design for 0.4.0, in which the worker keeps one `knowledge.md` per project and in `general/` and `private/`, `/dory:note` writes a separate `notes.md`, and the session start loads both or a summary, so that the build loop works against agreed stories. Foundation work: no behaviour changes yet.
+
+**What it solves.** Two days with a fresh vault showed the knowledge of ai-assistant-hub spread over 13 files (15,470 characters), the rename and delete machinery of 0.3.0 never triggered in 19 runs, and the user's own notes treated like the worker's. Record 003 records six decisions by the user and seven stories with Given-When-Then criteria.
+
+**Implementation.** `docs/records/003-project-knowledge-file.md` (problem, options, decisions 1 to 6, solution, stories S1 to S7); the build loop's state in `docs/auto-state.md`, replacing the finished loop of Record 002; a status row in `CLAUDE.md`.
+
+**Decisions and reasoning.**
+- By the user: `knowledge.md` has no size limit (1B); fixed sections, edits and a diff after the run (2B), without a guard that undoes large removals; the worker reads `notes.md` and never changes it (3A); one pair of files per scope with `general/` and `private/`, and `/dory:note` can write general notes from within a project (4B); no migration of 0.3.0 notes (5C); the summary is made by the worker in the background, never at session start (6B).
+- Added during the design review, without a separate decision: dory's code owns the frontmatter of `knowledge.md` and a project's domain (`work` by default, private only by hand); notes are kept in the user's words, not translated; notes load before knowledge; one summary per project rather than per scope; `dory add-note` writes notes deterministically and replaces `dory refresh`.
+
+**Review findings (architect review of the record against the code, 19 findings, 3 of them P1), all addressed in the record.**
+- P1 A corrected entry gets a new bold lead, so a diff keyed by the lead would have counted every correction as a removal and drowned the loss signal in `dory status`: a vanished entry is paired with a similar new one and counted as changed.
+- P1 The rule "domain by content" would have let one session about the user's NAS turn a work project private, so that every later session there loaded `private/`: the code creates the file with `domain: work`, and the post-run checks restore `type`, `domain` and `paths`.
+- P1 The 0.3.0 rules send the worker to search the project folder, where existing vaults keep their single notes: only `knowledge.md` and `notes.md` count as current there, other changed files are logged, and a live check covers it.
+- P2 Read-only `notes.md` rested on the rules alone (now a permission rule in the worker command plus a restore after the run); partial runs escaped the diff (a baseline from the first attempt); the summary's hash, marking, command and failure handling were unspecified; the worker's input grows with the project (a live check at about 15,000 characters, Grep for `general/` and `private/`); a user note a later session contradicts; link form for files of the same name; placement and wording of `/dory:note`; the search boundary for private projects; missing placement live checks.
+- P3 Story S1 split into the deterministic post-run checks (new S1) and the worker (S2); structured `vault_changes`; heading levels and the order when cutting at session start; CHANGELOG notes on restarting old sessions and on sibling-project knowledge.
+
+## Record 003, Story S1: entries and post-run checks (2026-10-19)
+
+**User story.** As a user whose project knowledge a model edits after every session, I want dory to compare each run against the state before it, protect the frontmatter and my notes, and report every removed entry, so that a lost entry shows up in `dory status` instead of going unnoticed. Foundation for S2 (the worker writing `knowledge.md`), whose live checks read these results, and for S6 (search by entry).
+
+**What it solves.** Every worker run is now checked in code: a model that drops an entry, changes a project's domain, rewrites the user's notes or touches a file it has no business with leaves a line in `runs.log`, and `dory status` shows the day's count. A corrected entry with a new bold lead counts as one change, not as a loss. What the worker writes does not change yet: the rules still produce 0.3.0 single notes until S2.
+
+**Implementation.**
+- `entries.py`: the parser (an entry is a column-0 bullet up to the next bullet or heading, loose text counts too; key is the normalized bold lead, else the first 80 characters, duplicates numbered) and the diff (same key with other text or section is `changed`; a vanished entry pairs with the most similar new one in the same file from a difflib ratio of 0.5, without autojunk; the rest is `added` or `removed`).
+- `baseline.py`: skeletons for missing knowledge files (`type`, `domain` from the folder, `paths` for a project, `updated`); the baseline under `<state>/baselines/<entry>/` (copies of the three knowledge files and every `notes.md`, hashes of every other `.md` in `projects/`, `general/`, `private/`); the checks (protected keys restored, changed `notes.md` restored, unexpected files reported, entry diff), each step guarded so a read or write error becomes a `failed` item.
+- `ingest.py`: skeletons, snapshot, baseline right before the run; checks after every outcome that changed the vault or that inherits an unchecked baseline; the snapshot of a transient run is dropped only when the vault did not change. `ops.py`: `Knowledge today: … removed, … restored, … unexpected, … failed checks`. `worker.py`: baselines discarded and swept like the repository copies.
+
+**Decisions and reasoning.**
+- The baseline is per attempt, not per entry as Record 003 first said: a baseline kept from the first attempt restored the user's notes and a hand-set `domain` to their state at that attempt, possibly hours earlier, and reported other entries' changes as this entry's (first review pass, P1). Each attempt now reports its own changes; only an attempt that ended before its checks ran (no `CHECKED` marker) hands its baseline on. Record 003 changed accordingly.
+- The baseline lives in `<state>/baselines/`, not under `work/<entry>/`, because the run can write its bundle directory.
+- `vault_state` ignores `.obsidian/` and `.trash/`: Obsidian writes its workspace file while the vault is open, which would make every run look like a change.
+- Known limit, now in the record: a hand edit to a `notes.md` during a run (20 to 60 seconds) is undone and logged as `restored`; `dory add-note` (S5) will write into running baselines so its own notes stay.
+
+**Why readable and maintainable.** One module per concern: `entries.py` knows Markdown entries and nothing about runs, `baseline.py` knows the vault layout and the run's guard, `ingest.py` only wires them in. Tests read as the acceptance criteria (`test_each_attempt_reports_its_own_changes_and_keeps_edits_made_in_between`).
+
+**Review findings.** First pass (architect and code reviewer): P1 baseline kept across attempts undoes user edits (fixed, per-attempt baseline); P2 status counted per-entry last lines, double-counting and missing changes (fixed, sums the day's lines); P2 a dangling link made the baseline raise and every entry fail (fixed, `is_file()` and an `unreadable` marker); P2 difflib autojunk kept entries over 200 characters from pairing, a corrected entry counted as removed (fixed, `autojunk=False`, test with a 250-character entry); P3 failed checks invisible in status (fixed, counted). Second pass (code reviewer, `correct`): P2 a kept baseline was marked checked without a check when the next attempt changed nothing (fixed, checks run when the baseline is inherited); P3 a failure before the run left the baseline unchecked (fixed, taken right before the run, marked checked when `claude` does not start); P3 the skeletons broke two 0.3.0 live checks (fixed, `knowledge.md` excluded from their note count). Each fix has a test that fails on the old code. Not reviewed a third time: the second-pass fixes are local and covered.
+
+**Checked.** 186 unit tests green, ruff clean. No live run: the story is deterministic, and the live suite is ported in S2.
+
+## Record 003, Story S2: the worker keeps one knowledge file per scope (2026-10-19)
+
+**User story.** As a user who reads what dory knows about a project, I want the worker to keep it in one `knowledge.md` per project, and in `general/` and `private/`, growing and shrinking with what holds, so that I read the project's knowledge as one text and nothing outdated stays in it. End-user value: what the worker writes is now the 0.4.0 model; the session start reads it from S3 on.
+
+**What it solves.** A session no longer leaves single notes. The worker adds, extends, corrects or removes bullet entries in fixed sections of one file per scope, never touches the user's `notes.md` (a permission rule, checked live) or files of 0.3.0, and puts what applies everywhere into `general/` or, when private, `private/`. On a file of 40 entries and 14,095 characters, a run added one entry and lost none, with Haiku (0.006 USD, 20 s) and Sonnet (0.088 USD, 35 s).
+
+**Implementation.**
+- `plugin/skills/rules/SKILL.md` rewritten for knowledge files: sections, bold-lead entries with at most three sentences, which file (project, `general/`, `private/`, never another project's, never `general/` from a private project), Edit instead of Write, the user's notes read-only and never repeated, a contradicted note named under `## Open`, path links with alias, the `## Insights` line format. Kept from 0.3.0: data principle, commands from the user's hand, no secrets, language, the bar, the repository check with record pointers, identifiers with their subject, people.
+- `plugin/skills/ingest/SKILL.md`: read the project's knowledge and notes in full, Grep `general/` and `private/`, no overview step.
+- `ingest.py`: the task lists the knowledge files the run may change and the notes it must leave alone, the session note links the project's `knowledge.md`, no overview and no known projects; the `--settings` of the run deny Edit and Write on `**/notes.md`; skeletons first, then the domain, then the files. `scopes.py` (new): layout, `knowledge_files(project, domain)`, `project_domain` (the project's `knowledge.md`, before it exists a 0.3.0 overview). `bundle.py` names that domain. `vaultops.py` and its tests removed.
+- `entries.py`: a lead counts for pairing only when the new lead keeps every word of the old one except numbers. `ops.py`: `dory status` also counts rewritten leads. `baseline.py`: a kept baseline remembers the files it captured.
+
+**Decisions and reasoning.**
+- The deny rule stays in the command: the live probe showed a restricted run honours it (3 of 3), and that the Edit rule alone also blocks Write; both rules are listed for clarity.
+- A changed entry whose lead was rewritten is counted in `dory status` as a rewritten lead: short entries built on one pattern ("Loki runs on port 3100", "Redis runs on port 6379") pair by their whole text, and no rule tells such a pair from a correction without false removals; counting them keeps a wrong pairing visible.
+- A 0.3.0 overview's `domain: private` seeds the project's domain once (one key, an exception to decision 5): otherwise a project the user had marked private would silently become work, and its knowledge would be searchable from work projects.
+- Two failures in the first 3-of-3 rounds changed the code: the port correction counted as a removal (pairing by lead added, then restricted), and Haiku once repeated a user note as an entry (the task and the ingest skill now say that nothing the notes say becomes an entry); both checks then passed 3 of 3, twice.
+
+**Live tests.** New: the permission probe (`tests/test_live_bundle.py`), a full file keeps every entry, a user's note is never changed or repeated, a contradicted note is named as open, knowledge lands in its scope, files of an earlier version stay untouched. Rewritten for the new model: build session adds no entry, a pitfall becomes an entry that opens with its statement, contradicting insight corrects the entry, the entry the CLAUDE.md now states is removed. Ported: same insight extends, CLAUDE.md facts (also after 8,000 characters) not repeated, extending rewrites to the current state, record detail gets no entry, platform gotcha becomes a pointer, session note keeps what is open, shopping list, quoted injection, configured language, repository documents cannot change the language, identifiers with their subject, no project status, no role names. Dropped: an insight for two projects lists both, the overview loses its open section, a note shared with another project is kept (no multi-project notes and no overview any more). `tests/test_live_note.py` is skipped until `/dory:note` moves to `notes.md`.
+
+**Review findings.** First pass (architect, code reviewer, security auditor, all `correct`): P2 lead pairing paired unrelated entries and hid removals (restricted, rewritten leads counted); P2 a 0.3.0 private project became work (domain seeded from the overview); P2 a private project's session could write `general/` (left out of its files, reported as unexpected, rule added); P2 the note-repeat check keyed on the user's verb (checks content now); P3 NAS check, bundle domain line test. Second pass (code reviewer, `correct`): P2 the bundle still said work on the first run of a 0.3.0 private project (the overview fallback moved into `project_domain`); P3 a kept baseline could be checked against another set of files after a domain change (the captured list is stored); P3 the rules said "three files". Each fix has a test that fails on the old code; not reviewed a third time, the second-pass fixes are local.
+
+**Checked.** 170 unit tests green, ruff clean; whole live suite 25 of 25 on the end state (6 note checks skipped), every new check 3 of 3 with Haiku. The iteration took 103 live worker runs and about ten probe runs, 0.59 USD API equivalent.
+
+## Record 003, Story S3: the session start loads the files (2026-10-19)
+
+**User story.** As a user starting a session in a project, I want the session start to load the project's and the general `notes.md` and `knowledge.md` as they are, while they fit the limit, so that Claude knows what the vault knows about the project, not only summaries and paths. End-user value: what S2's worker writes now reaches every new session.
+
+**What it solves.** A session in a work project starts with the project line and the full text of four files, in this order: the project's notes and knowledge, then the general notes and knowledge. Each file sits under its vault path, and its own `## Pitfalls` becomes `### Pitfalls`. A private project and a session outside a repository also get `private/`. A repository dory does not know yet gets `general/`. Single notes and overviews from 0.3.0 no longer appear. When everything together exceeds `recall_budget_tokens`, the files are cut line by line in load order, followed by a marker and the paths of all files. The session start no longer walks the vault: it reads at most six files and the frontmatter of `notes/*.md`.
+
+**Implementation.**
+- `scopes.context_files(project, domain)`: the load table of Record 003 as vault-relative paths, notes before knowledge.
+- `context.py` (new): `file_texts` (body without frontmatter, headings one level down outside code fences, empty files left out) and `text` (each file under its path). The worker builds the same text in S4 for the summary and its hash.
+- `recall.py` rewritten: header, project line (the `summary` of the project's `knowledge.md`, or "no knowledge for this project in the vault yet"), queue lines as before, the files, the paths of lists and registers by domain. Within the limit the text loads as it is. Over the limit, `_cut` gives the header, the project line, the queue lines and the paths their room first, and the files fill what is left. The cut stops at the first line that does not fit, and nothing later fills the gap. The summary of S4 goes between the limit check and `_cut`.
+- `search.py` takes `Note`, `scan`, `allowed` and the overview-based `project_domain` from the old recall unchanged, until S6 rewrites it.
+- Tests: `tests/test_recall.py` replaced (15 tests: the six criteria, the domain fallback, list visibility, robustness, plus the kept checks for resume, session files, the unknown repository and speed); `tests/test_recall_knowledge.py` removed, it tested ranking and catalog of 0.3.0 notes.
+
+**Decisions and reasoning.**
+- The domain of a project whose `knowledge.md` does not exist yet comes from `scopes.project_domain`, which falls back to a 0.3.0 overview's `domain: private`, the same domain the worker's skeleton takes. Record 003 said `work` when the file is missing. The record now says what the code does, so a private project does not lose `private/` at session start until its first 0.4.0 run.
+- Over the limit, the pointers (project line, queue lines, file paths, list paths) get room before the file contents, although they appear after them. They make the rest reachable. The catalog reserve of 0.3.0 followed the same reasoning.
+- The cut drops a heading the cut left at the end of a block, so no section heading appears without content.
+
+**Open for S4 (architect, second half of a P3).** The session start decides on the whole text (header, queue lines and list paths included, as criterion 4 requires), and Record 003 has the worker summarize a context "when its text exceeds the limit", meaning the files alone. A context whose files fit but whose whole text does not would be marked at every session start and skipped by every worker pass. S4 has to use one threshold on both sides. One way: both compare `context.text` against the summary's target of 80 % of the limit, and the session start marks only in that case.
+
+**Review findings.** First pass (architect, code reviewer, security auditor, all `correct`):
+- P2, found by all three: `_lists_section` raised `TypeError` on a `notes/*.md` with an empty or list-valued `type`, because the parser returns `[]` for `type:`. The hook logs the exception and injects nothing, so one such file switched off the session start everywhere. Fixed with the `str()` coercion of the old `Note.type`, with a test.
+- P3: the same regression in the `Note.domain` moved into `search.py` (fixed, with a test).
+- P3: an unused entry count from `_fill_section` (removed).
+- P3: list visibility for a private project and an unknown repository untested (two assertions).
+- P3: the context text lived only as private helpers in the hook module (moved into `context.py`; the threshold half is open for S4, see above).
+
+Each fix has a test that fails on the old code, except the two refactors.
+
+Second pass (code reviewer, `correct`, 0.88): no findings; the move into `context.py` leaves the output byte for byte the same.
+
+**Checked.** 168 unit tests green, ruff clean. No live run: the session start does not call `claude`, and the story's criteria are unit tests.
+
+## Record 003, Story S4: a summary when the files exceed the limit (2026-10-19)
+
+**User story.** As a user with a lot of knowledge in a project, I want the session start to load a summary the worker made beforehand when the files exceed the limit, so that dory's share of the context stays within the limit and the session start never waits for a model.
+
+**What it solves.** A project whose files no longer fit gets a summary instead of a text cut off after the first file. The worker writes it after a session of the project, or when a session start asks for it, with a `claude -p` run without tools: about 12 seconds and 0.0016 USD with Haiku for the 14,000-character file of the S2 size check. The summary for that file had 2,350 characters in German, pitfalls first, with the eight services' commands kept. The next session start loads it and lists the paths of the full files under it. If the files have changed since, the old summary still loads with a line saying so, and the worker makes a new one in the background. Without a usable summary the files load cut, as in S3.
+
+**Implementation.**
+- `summary.py` (new, imported by the hook): contexts (project name, `_general`, `_outside`) with their files and domain, the one threshold (`needs_summary`: the context text against 80 % of the limit), the hash over text, domain, note language and limit, the store `<state>/summaries/<context>.md` (header with hash and domain, written through a temporary file), the `.wanted` marks.
+- `summarize.py` (new): the command (`--restricted --tools "" --strict-mcp-config`, hooks off, own system prompt that frames the files as data, one turn, no session persistence, 0.25 USD budget), `make_summarize` (the summary step of a worker pass: unmark, build the text, skip when within the target, up to date, or failed three times for this text; run; strip a code fence and a preamble line; cut at a line to the target with a marker; save; `kind: summary` in `runs.log` with the cost), a 3-minute timeout.
+- `worker.run` takes the step after the drain, under the lock, for the contexts of the entries that are done plus every mark, once per context and pass; a transient or timed-out summary ends the pass; marks of contexts not tried yet keep the pass going.
+- `recall.py`: over the limit and over the target, `_summary_or_files` loads the summary of the matching domain (with the stale line if the hash differs), and marks and starts the worker when it is missing or stale. `_fit` replaces `_cut` for both: front and tail first, then the body line by line, the marker only when something was cut.
+- `spawn.py` (new): `spawn_worker`, moved out of `cli.py` so the hook can start the worker; `cli.py` passes the summary step to the worker. `state.summaries`.
+
+**Decisions and reasoning.**
+- One threshold for both sides (Record 003, new paragraph): the context text against the summary's target of 80 % of the limit. Before, the session start decided on the whole text and the worker on the files. A context whose files fit but whose whole text did not would then have been marked at every session start and skipped by every pass. The session start now cuts without a mark in that case, because a summary would not be shorter. Two S4 criteria now say "the summary's target" instead of "the limit".
+- The domain of a context is `private` when it loads `private/`. A summary made for the other domain never loads; the files load cut instead.
+- Failures count per text: three failed or timed-out runs for the same hash stop the retries until the text changes. A transient failure does not count, because a rate limit is not the text's fault.
+- The marks of contexts already tried in a pass do not keep the pass going. Otherwise a session start that marks again during a failed job would make the worker loop.
+
+**Live checks** (Haiku, 3 of 3 each): the probe of the command (summary in `result`, one turn, no session file or queue entry of dory although the worker marker was removed for the run), its positive control (without the disabled hooks, the installed dory plugin's session start writes its file, so the probe could see one), and the full project summarized within the target in German with a pitfall kept. No other live check was rerun: the ingest run is unchanged, and the worker live suite calls `run()` without the summary step.
+
+**Mutations.** Six changes to the code were each caught by the unit tests: the domain check off, no mark, the threshold ignored, processed contexts not collected, no failure cap, a transient run not ending the pass. A seventh, after the review, covers the marker-only summary.
+
+**Review findings.** First pass (architect `incorrect`, code reviewer `incorrect`, security auditor see below):
+- P1, found by architect and code reviewer: the S3 test of the cut now took the new spawn path. Every `pytest` run started a real `dory worker` with the default state directory, which is the user's real one, the default vault `~/Obsidian/dory-brain` and English. A worker started that way would have processed any waiting entry of the real queue into the wrong vault. Checked on the real state: the queue was empty at each test run (the last real entry was processed at 15:29, the first test-started worker came at 15:43), `runs.log` has no line after 15:29, `~/Obsidian/dory-brain` does not exist. The only traces are two empty folders, `summaries/` and `baselines/`, in `~/.local/state/dory-brain`. Fixed in `tests/conftest.py`: `DORY_NO_SPAWN=1` for every test. After the fix, a full test run left the real state directory unchanged.
+- P3: a summary cut down to the marker alone counted as done and would have replaced the files until they changed (fixed: it is a failure; test).
+- P3: the "newer" assertion could not fail (now checks the stale line).
+- P3: the end of the pass on a stopping summary step was only tested on the step (a test through `worker.run`: the pass stops, a later entry stays queued with no attempt).
+- P3: two S4 criteria still said "limit" (record aligned).
+- P2 (security auditor; it also reported the spawn above as P2): a repository directory named `_general` became the project `_general` and shared the reserved context name. Its session start would have loaded the summary of `general/` as stale and marked it at every start, without its own knowledge. Fixed: project contexts are named `project-<name>`, and a mark with a name dory does not give is ignored. The Record 003 line on contexts says so; a test with a repository named `_general`.
+
+The security auditor found the domain boundary intact: a summary carries the domain of the files it was made from, and the session start loads it only on an exact match.
+
+Second pass (code reviewer, `correct`, 0.85): all six fixes hold; one P3, a stale summary path in an S4 criterion (record aligned).
+
+**Checked.** 188 unit tests green, ruff clean; the three live summary checks 3 of 3 with Haiku, and once more on the end state after the rename (0.001 USD, 10 s, 2,263 characters). The real state directory stayed unchanged through every test run after the fix.
+
+## Record 003, Story S5: `/dory:note` writes the user's notes (2026-10-19)
+
+**User story.** As a user who wants something remembered right now, I want `/dory:note` to add it to the project's `notes.md`, or to `general/` or `private/` when it applies beyond the project, so that my own words reach later sessions and the worker never rewrites them.
+
+**What it solves.** `/dory:note "Loki port 3100 clashes with Grafana"` in a project now adds `- 2026-10-19: Loki port 3100 clashes with Grafana` to `projects/<project>/notes.md`, word for word. "remember in general: Python packages with uv instead of pip" goes into `general/notes.md` without the routing words. A note about the home NAS goes into `private/notes.md`, also from a work project. "add milk to the shopping list" still goes onto the list under `notes/`, inside a project too. The next session start loads the note, and a summary that covers the file is rebuilt in the background. A note added while the worker processes a session survives the run's post-run checks.
+
+**Implementation.**
+- `note.py`: `add_note` validates the scope and the text (whitespace collapsed to one line), finds the project, appends one dated bullet (the file is created with `type: notes` if missing), writes the same line into the baseline copies of queued entries, marks the context that loads the file and starts the worker. `NoteError` for an unknown scope, `project` outside a repository or an empty note; nothing is written then. `prepare_note` names the project, its domain from `scopes.project_domain`, the scopes with their paths and the rules; the project overview and the list of known projects are gone.
+- `baseline.py`: `notes_copies` (where the unchecked baselines of queued entries keep a `notes.md`) and `notes_lock`, a short `flock` on `<state>/notes.lock`, held by `add_note`, by `capture` and by the notes restore in `check`.
+- `cli.py`: `dory add-note --scope project|general|private`, the text as arguments or on stdin, the path on stdout, the error on stderr with exit 1.
+- Note skill rewritten: a list item goes onto the list; anything else gets a scope and goes through `dory add-note` with a quoted heredoc, so quotes and `$` in the user's text reach the file unchanged. The rules' `/dory:note` section says a note keeps the user's words and language.
+
+**Decisions and reasoning.**
+- The skill only chooses; the code writes. The model never edits a `notes.md`, so the format (one dated bullet, newest last) cannot drift.
+- The note goes in through stdin and a quoted heredoc rather than as a shell argument: the user's text may contain quotes, `$` or backticks.
+- A private note from a work project marks `_outside`, the context that loads `private/`; the work project's own context does not load it.
+- The same line twice in a row is written once, so a retry of the command does not duplicate it.
+
+**Live checks** (`tests/test_live_note.py`, Haiku, the module skip of S2 removed): note in a project, general note from a project, home NAS note from a work project, shopping item in a project and outside a repository; 3 of 3 each, plus a full round after the review fixes. Each round of the seven checks takes about 70 seconds. The two search checks of 0.3.0 run again and pass; `test_search_finds_the_note_and_says_where` still searches a 0.3.0 single note and has to change in S6 (decision 5: those are no longer searched).
+
+**Review findings.** First pass (architect, code reviewer, security auditor, all `correct`):
+- P2, found by all three: `add-note` and a running worker shared no lock. A note written while `capture` hashed the scope files, or while the notes restore had read its copy, was undone by the restore and logged as `restored`. Two `add-note` calls at once could overwrite each other. A queued retry's checked baseline could be recreated under `capture`. Fixed: `notes_lock` around add-note's read and writes, around `capture` and around the notes restore, and no copy into checked baselines. Tests: add-note waits while the lock is held, two writers keep all 30 lines, capture and restore take the lock, checked baselines get no copy. Without the lock, two of them fail in three of three runs.
+- P3: a private note from a work project marked the project's context (fixed, test).
+- P3: test gaps closed: the text as arguments, a run that changed `notes.md` itself (restored, the user's line kept), and the live reply names the project's file.
+
+Second pass (code reviewer, `correct`, 0.85): no findings. The lock is never taken twice in one call path and never held across the `claude -p` run, so it cannot deadlock with itself or with the worker lock, which never waits. Every interleaving of `add-note` with capture, check and a retry keeps the user's line. Two harmless leftovers: a racing `add-note` can recreate an empty baseline directory after `discard` (ignored without its marker and swept), and a narrow window can log a false `unexpected` line.
+
+**Checked.** 203 unit tests green, ruff clean, the real state directory unchanged by every test run; live note checks as above.
+
+## Record 003, Story S6: search finds single entries (2026-10-19)
+
+**User story.** As a user looking for something dory knows, I want `/dory:search` to show the matching entries of the knowledge and notes files, besides session notes and lists, so that a hit shows the statement itself instead of a file that holds twenty.
+
+**What it solves.** `/dory:search loki` in the hub now answers `- Loki only starts if UID 10001 owns the data directory. (Pitfalls) → projects/ai-assistant-hub/knowledge.md`. Before, it named whole files, and since 0.4.0 it would have found only the old single notes. The Grafana entry in the same file is not a hit. A note of the user's shows whole, with its date. In a work project no private entry, session note, list or path appears; outside a repository and in a private project everything does. Single notes and overviews from 0.3.0 are neither searched nor shown.
+
+**Implementation.** `search.py` rewritten:
+- **Candidates:** the entries of every `knowledge.md` and `notes.md` in `projects/<name>/`, `general/` and `private/` (`entries.parse`), each with its file and section; session notes under `sessions/`; lists and registers under `notes/`.
+- **Domain:** by folder for `general/` and `private/`, by `scopes.project_domain` for a project folder, and by their own `domain` for notes and lists (lists private unless they say otherwise).
+- **Weights:** the 0.3.0 weights kept (a lead or summary 3, tags and name 2, text 1), with words matched first.
+- **Moved code gone:** the 0.3.0 `Note`, `scan`, `allowed` and the overview-based `project_domain` that S3 had moved here are removed.
+- **Skill text:** reports statement, section and file.
+
+**Review findings.** First pass (architect, code reviewer, security auditor):
+- P2 (code reviewer), P3 (architect): the ranking test passed through the path order alone. Notes have no bold lead, so both hits scored the same. The test now puts the text-only hit in a file that sorts first; with flat weights it fails.
+- P3, both: `_read` used `utf-8` where the replaced helpers used `utf-8-sig`. A list with a byte order mark disappeared, and the frontmatter of such a `knowledge.md` became a searchable entry. Fixed, with a test.
+- P3 (code reviewer): a user note was cut to the 80-character key of the entry parser, mid-word. A note now shows whole; a knowledge entry shows its bold lead. Test added.
+
+All three verdicts `correct`; the security auditor found every way into a work project's search output filtered and no new injection channel. No second pass: the three fixes are local (an encoding, a display function, a test) and each has a test that fails without it.
+
+**Checked.** 206 unit tests green, ruff clean; three mutations of the domain boundary and one of the weights caught; the two live search checks 3 of 3 with Haiku, the first rewritten to find an entry of a `knowledge.md`.
+
+## Record 003, Story S7: release 0.4.0 prepared (2026-10-19)
+
+**User story.** As a user of the public plugin, I want these changes as version 0.4.0 with a changelog entry, so that `claude plugin update dory@brain` brings them and I know what happens to my old notes.
+
+**What it solves.** The branch `feat/knowledge-file` carries version 0.4.0 in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (`uv.lock` follows). The CHANGELOG entry names everything Story S7 asks for. README and project CLAUDE.md describe the 0.4.0 model. Record 003 is Done. Nothing is tagged or pushed; merging, tagging, pushing and installing stay with the author.
+
+**Implementation.**
+- **CHANGELOG 0.4.0:** one knowledge file per scope; the user's notes in `notes.md` and where `/dory:note` writes; the session start; the summary over the limit; the post-run checks with `runs.log` and `dory status`; search by entry; sibling projects; what happens to 0.3.0 notes; sessions started before the update.
+- **README:**
+  - "What you get", the commands, `recall_budget_tokens` and how-it-works, with step 5 now the post-run checks and a new step 6, the summary;
+  - work and private, with how to mark a project private;
+  - a new "Session start" section with the load table, replacing "Ranking at start";
+  - the vault tree, undoing a change, and the record links.
+- **CLAUDE.md:**
+  - About, Current Status, Next Step (the release steps) and Architecture;
+  - Recent Decisions: the 2026-10-16 line on single notes and renaming replaced by Record 003's model, and a new line: every test runs with `DORY_NO_SPAWN=1`.
+
+**Review findings** (documentation review, code reviewer, `correct`, claims checked against the code):
+- P2: the CHANGELOG advised deleting 0.3.0 overviews and promised that a private project stays private. That holds only while the overview exists until the project's first 0.4.0 run creates its `knowledge.md`. Deleted earlier, the project becomes work and writes `general/`. The CHANGELOG and README now say to keep such an overview until then or to set the domain in `knowledge.md`.
+- P3: a session started before the update starts the 0.3.0 worker when it ends, and that worker processes everything in the queue the 0.3.0 way, not only its own session. The CHANGELOG and CLAUDE.md now say so.
+- P3: only a note added through `/dory:note` survives a run; a hand edit to a `notes.md` during a run is undone (the known limit of S1). The CHANGELOG now says so.
+- P3: the summary loads only when the whole text exceeds the limit and the files alone exceed 80 % of it; the README and CHANGELOG stated the 80 % alone, and one README sentence read as if a stale summary were not loaded. Corrected.
+- P3: the CLAUDE.md did not say how to mark a project private (S7 criterion 3). Added to Architecture.
+
+**Checked.** 206 unit tests green, ruff clean, version test green.

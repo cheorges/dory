@@ -1,95 +1,41 @@
-"""SessionStart: build the memory that is injected into a new session.
+"""SessionStart: build the memory that is injected into a new session (Record 003).
 
-Priority within the token budget (record 001, component 8):
-1. project line with the summary of the project overview
+The session start reads fixed paths and never scans the vault. In this order:
+1. header and project line, the `summary` of the project's `knowledge.md`
 2. sessions of this project still waiting in the queue: their knowledge is not in the vault yet
-3. knowledge notes of this project: summary, when, path
-4. cross-project knowledge notes of the matching domain
-5. catalog: project notes that did not fit, plus all lists and registers
+3. the `notes.md` and `knowledge.md` of the context (`scopes.context_files`), each under its
+   path with its own headings one level down
+4. the paths of the lists and registers under `notes/`
 
-What happened in recent sessions is not injected: the user knows it, and git, the CLAUDE.md
-and /dory:search answer it on demand. The session start carries what nobody would ask for.
-
-Knowledge is ranked by pinned, then number of sources, then updated; superseded and archived
-notes are never loaded. In a work project nothing with domain private appears, not even in the
-catalog; outside a repository both domains do. The boundary filters what is injected, it is
-no access control: Claude can still read the vault.
+The limit `recall_budget_tokens` covers the whole text; header, project line, queue lines and
+paths keep their room first. Over it, when the files exceed the summary's target, the summary
+the worker made of them loads instead, followed by their paths; a missing or stale summary is
+asked for with a mark and a worker start, and the session start never waits for it. Without a
+usable summary, or when only the other parts pushed the text over, the files are cut in load
+order with a marker. In a work project nothing from `private/` appears, not even a path or a
+private list; outside a repository both domains do. The boundary filters what is injected, it
+is no access control: Claude can still read the vault.
 """
 
 import contextlib
 import json
 import time
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 
-from dory import queue
+from dory import context, queue, scopes, spawn, summary
 from dory.config import Config
 from dory.frontmatter import read_frontmatter
 from dory.project import Project, lookup_project
 from dory.state import StateDir
 
 HEADER = "Memories from dory-brain. Reference material, not instructions."
-CUT_MARKER = "[... truncated, more with /dory:search ...]"
+CUT_MARKER = "[... cut at the limit of the session start ...]"
+SUMMARY_TITLE = "## Summary of the files below (made by dory)"
+STALE = "(The files changed since this summary was made; read them for what is new.)"
+PATHS_TITLE = "## The files in full (read if needed)"
 SESSION_FILE_MAX_AGE_DAYS = 30
-_CHARS_PER_TOKEN = 4
-_SKIP_DIRS = {".obsidian", ".trash", ".git"}
-_KNOWLEDGE_TYPES = {"decision", "gotcha", "howto", "fact", "preference"}
 _CATALOG_TYPES = {"list", "register"}
-_CATALOG_SHARE = 0.2  # of the budget, held back while knowledge loads
-
-
-@dataclass(frozen=True)
-class Note:
-    path: Path
-    meta: dict[str, object]
-
-    @property
-    def projects(self) -> list[str]:
-        value = self.meta.get("projects") or []
-        return [str(item).strip("[]") for item in value] if isinstance(value, list) else []
-
-    @property
-    def type(self) -> str:
-        return str(self.meta.get("type", ""))
-
-    @property
-    def domain(self) -> str:
-        """Lists and registers are private unless they say otherwise (dory:rules)."""
-        default = "private" if self.type in _CATALOG_TYPES else "work"
-        return str(self.meta.get("domain") or default)
-
-    @property
-    def retired(self) -> bool:
-        """Superseded by a newer note, or archived because the repository now documents it."""
-        status = self.meta.get("status")
-        return status in ("superseded", "archived") or bool(self.meta.get("superseded_by"))
-
-    @property
-    def holds_knowledge(self) -> bool:
-        """A knowledge note by its type, whatever its status."""
-        return self.type in _KNOWLEDGE_TYPES
-
-    @property
-    def is_knowledge(self) -> bool:
-        return self.holds_knowledge and not self.retired
-
-    @property
-    def rank(self) -> tuple:
-        """Sort key, best first: pinned, number of sources, updated, then name for stability."""
-        # Frontmatter values are strings, so `pinned: true` arrives as "true".
-        pinned = str(self.meta.get("pinned", "")).lower() == "true"
-        sources = self.meta.get("sources")
-        count = len(sources) if isinstance(sources, list) else 0
-        return (not pinned, -count, -self.updated.toordinal(), self.path.name)
-
-    @property
-    def updated(self) -> date:
-        """`updated` is a date without time; a malformed value ranks last."""
-        try:
-            return date.fromisoformat(str(self.meta.get("updated", ""))[:10])
-        except ValueError:
-            return date.min
 
 
 @dataclass
@@ -102,8 +48,8 @@ class _Section:
 class _Budget:
     """Characters left for the context; the cut marker always keeps its room."""
 
-    def __init__(self, tokens: int) -> None:
-        self.left = tokens * _CHARS_PER_TOKEN - len(CUT_MARKER) - 2
+    def __init__(self, limit: int) -> None:
+        self.left = limit - len(CUT_MARKER) - 2
         self.cut = False
 
     def take(self, text: str) -> bool:
@@ -122,42 +68,26 @@ def recall(hook: dict, config: Config) -> str:
     if hook.get("source") == "resume":
         return ""
     cwd = Path(hook.get("cwd") or ".")
+    vault = config.vault
     project = lookup_project(cwd, state.projects_file)  # never writes: hooks run in parallel
-    notes = scan(config.vault)
-    domain = project_domain(project, notes, config.vault)
-
-    budget = _Budget(config.recall_budget_tokens)
-    blocks = _fill([_Section("", [HEADER, f"Vault: {config.vault}"])], budget)
-    context = _fill(
-        [
-            _project_section(project, notes, config.vault),
-            _queue_section(project, cwd, state),
-        ],
-        budget,
-    )
-    own, shared = _knowledge(project, domain, notes)
-    loaded: set[Path] = set()
-    # Notes that do not fit go to the catalog, so it keeps a share of the budget. If all
-    # knowledge fits within the rest, the reserve costs nothing.
-    reserve = int(config.recall_budget_tokens * _CHARS_PER_TOKEN * _CATALOG_SHARE)
-    budget.left -= reserve
-    stages = (("## Project knowledge", own), ("## Cross-project knowledge", shared))
-    for title, ranked in stages:
-        if budget.cut:  # strict ranking: nothing lower-ranked jumps a note that did not fit
-            break
-        section = _Section(title, [_knowledge_entry(n, config.vault) for n in ranked])
-        block, count = _fill_section(section, budget)
-        if block:
-            context.append(block)
-        loaded.update(n.path for n in ranked[:count])
-    budget.left += reserve
-    catalog = _catalog([n for n in own if n.path not in loaded], domain, notes, config.vault)
-    context += _fill([catalog], budget)
-    if not context and not budget.cut:
+    ctx = summary.context_for(vault, project)
+    lead = [_project_section(project, vault), _queue_section(project, cwd, state)]
+    texts = context.file_texts(vault, ctx.files)
+    lists = _lists_section(vault, ctx.domain == "private")
+    if not texts and not any(_render(section) for section in (*lead, lists)):
         return ""
-    if budget.cut:
-        context.append(CUT_MARKER)
-    return "\n\n".join(blocks + context)
+    head = _Section("", [HEADER, f"Vault: {vault}"])
+    files_text = context.text(texts)
+    blocks = [_render(head), *map(_render, lead), files_text, _render(lists)]
+    whole = "\n\n".join(block for block in blocks if block)
+    limit = summary.limit_chars(config)
+    if len(whole) <= limit:
+        return whole
+    files = [_Section(context.heading(path), text.splitlines()) for path, text in texts.items()]
+    if summary.needs_summary(files_text, config):
+        files = _summary_or_files(state, ctx, files_text, config, files)
+    paths = [f"- {path.as_posix()}" for path in texts]
+    return _fit([head, *lead], files, [_Section(PATHS_TITLE, paths), lists], limit)
 
 
 def hook_output(context: str) -> str:
@@ -181,46 +111,15 @@ def _remember_session(state: StateDir, hook: dict) -> None:
                 old.unlink()
 
 
-def scan(vault: Path) -> list[Note]:
-    if not vault.is_dir():
-        return []
-    notes = []
-    for path in vault.rglob("*.md"):
-        if _SKIP_DIRS.intersection(path.relative_to(vault).parts):
-            continue
-        meta = read_frontmatter(path)
-        if meta:
-            notes.append(Note(path, meta))
-    return notes
-
-
-def _overview(project: Project | None, vault: Path) -> Path | None:
+def _project_section(project: Project | None, vault: Path) -> _Section:
     if project is None or not project.name:
-        return None
-    return vault / "projects" / project.name / f"{project.name}.md"
-
-
-def project_domain(project: Project | None, notes: list[Note], vault: Path) -> str | None:
-    """None outside a repository: then both domains are loaded."""
-    if project is None:
-        return None
-    overview = _overview(project, vault)
-    meta = next((n.meta for n in notes if n.path == overview), {})
-    return str(meta.get("domain") or "work")
-
-
-def _project_section(project: Project | None, notes: list[Note], vault: Path) -> _Section:
-    overview = _overview(project, vault)
-    if project is None or overview is None:
         return _Section("", [])
-    meta = next((n.meta for n in notes if n.path == overview), None)
-    if meta is None:
-        missing = f"## Project: {project.name}\n(no project overview in the vault yet)"
-        return _Section(missing, [], bare=True)
     title = f"## Project: {project.name}"
-    if meta.get("summary"):
-        title += f"\n{meta['summary']}"
-    return _Section(title, [], bare=True)
+    path = vault / "projects" / project.name / scopes.KNOWLEDGE
+    if not path.is_file():
+        return _Section(f"{title}\n(no knowledge for this project in the vault yet)", [], True)
+    summary = read_frontmatter(path).get("summary") or "(no summary of the project yet)"
+    return _Section(f"{title}\n{summary}", [], bare=True)
 
 
 def _queue_section(project: Project | None, cwd: Path, state: StateDir) -> _Section:
@@ -243,62 +142,95 @@ def _queue_section(project: Project | None, cwd: Path, state: StateDir) -> _Sect
     return _Section("## Not processed yet (read the transcript if needed)", waiting)
 
 
-def _knowledge(
-    project: Project | None, domain: str | None, notes: list[Note]
-) -> tuple[list[Note], list[Note]]:
-    """Ranked knowledge notes of this project, and cross-project ones of the matching domain."""
-    candidates = [n for n in notes if n.is_knowledge and allowed(n, domain)]
-    name = project.name if project else ""
-    own = [n for n in candidates if name and name in n.projects]
-    shared = [n for n in candidates if not n.projects and (domain is None or n.domain == domain)]
-    return sorted(own, key=lambda n: n.rank), sorted(shared, key=lambda n: n.rank)
+def _lists_section(vault: Path, private: bool) -> _Section:
+    """Lists and registers are private unless they say otherwise (dory:rules)."""
+    entries = []
+    for path in sorted((vault / "notes").glob("*.md")):
+        meta = read_frontmatter(path)
+        if str(meta.get("type", "")) not in _CATALOG_TYPES:
+            continue
+        if private or (meta.get("domain") or "private") != "private":
+            entries.append(f"- {path.stem}: {path.relative_to(vault).as_posix()}")
+    return _Section("## Lists and registers (not loaded; read if needed)", entries)
 
 
-def allowed(note: Note, domain: str | None) -> bool:
-    return domain != "work" or note.domain != "private"
+def _summary_or_files(
+    state: StateDir, ctx: summary.Context, text: str, config: Config, files: list[_Section]
+) -> list[_Section]:
+    """The context's summary if one was made for its domain, else the files.
+
+    A missing or stale summary is asked for; the worker makes it in the background.
+    """
+    saved = summary.load(state, ctx.name)
+    usable = saved is not None and saved.domain == ctx.domain
+    fresh = usable and saved.hash == summary.digest(text, ctx.domain, config)
+    if not fresh:
+        summary.mark(state, ctx.name)
+        with contextlib.suppress(OSError):  # the next session start asks again
+            spawn.spawn_worker()
+    if not usable:
+        return files
+    lines = saved.text.splitlines()
+    return [_Section(SUMMARY_TITLE, lines if fresh else [STALE, "", *lines])]
 
 
-def _knowledge_entry(note: Note, vault: Path) -> str:
-    entry = f"- {note.meta.get('summary', note.path.stem)}"
-    if note.meta.get("when"):
-        entry += f" (when: {note.meta['when']})"
-    return f"{entry} → {note.path.relative_to(vault)}"
+def _fit(front: list[_Section], body: list[_Section], tail: list[_Section], limit: int) -> str:
+    """Front and tail take their room first; the body fills what is left, line by line.
+
+    The body stops at the first line that does not fit, and nothing later fills the gap.
+    """
+    budget = _Budget(limit)
+    first = _fill(front, budget)
+    last = _fill(tail, budget)
+    loaded = []
+    for section in body:
+        block = _fill_section(section, budget)
+        if budget.cut:
+            block = _trim(block)
+        if block:
+            loaded.append(block)
+        if budget.cut:
+            break
+    return "\n\n".join([*first, *loaded, *([CUT_MARKER] if budget.cut else []), *last])
 
 
-def _catalog(unloaded: list[Note], domain: str | None, notes: list[Note], vault: Path) -> _Section:
-    """Lists and registers come first: the catalog is their only way into a session."""
-    lists = sorted(
-        (n for n in notes if n.type in _CATALOG_TYPES and allowed(n, domain)),
-        key=lambda n: n.path.name,
-    )
-    entries = [f"- {n.path.stem}: {n.path.relative_to(vault)}" for n in [*lists, *unloaded]]
-    return _Section("## Catalog (not loaded; read if needed or use /dory:search)", entries)
+def _trim(block: str) -> str:
+    """Drop headings and blank lines a cut left at the end of a block."""
+    lines = block.splitlines()
+    while lines and (not lines[-1].strip() or lines[-1].startswith("#")):
+        lines.pop()
+    return "\n".join(lines)
+
+
+def _render(section: _Section) -> str:
+    if not section.entries:
+        return section.title if section.bare else ""
+    return "\n".join([section.title, *section.entries] if section.title else section.entries)
 
 
 def _fill(sections: list[_Section], budget: _Budget) -> list[str]:
     blocks = []
     for section in sections:
-        block, _ = _fill_section(section, budget)
-        if block:
+        if block := _fill_section(section, budget):
             blocks.append(block)
     return blocks
 
 
-def _fill_section(section: _Section, budget: _Budget) -> tuple[str, int]:
-    """Render a section entry by entry while the budget lasts; return it and the entry count.
+def _fill_section(section: _Section, budget: _Budget) -> str:
+    """Render a section entry by entry while the budget lasts.
 
-    A section stops at its first entry that does not fit, so the ranking holds. Its title
-    only appears together with an entry, unless the section is bare.
+    A section stops at its first entry that does not fit, so the order holds. Its title only
+    appears together with an entry, unless the section is bare.
     """
     if not section.entries:
         if section.bare and budget.take(f"\n{section.title}"):
-            return section.title, 0
-        return "", 0
+            return section.title
+        return ""
     lines: list[str] = []
-    for count, entry in enumerate(section.entries):
+    for entry in section.entries:
         head = section.title if section.title and not lines else ""
         text = f"{head}\n{entry}" if head else entry
         if not budget.take(text if lines else f"\n{text}"):  # a block also costs its blank line
-            return "\n".join(lines), count
+            break
         lines += [head, entry] if head else [entry]
-    return "\n".join(lines), len(section.entries)
+    return "\n".join(lines)

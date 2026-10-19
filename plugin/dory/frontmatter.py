@@ -54,7 +54,10 @@ def parse_frontmatter(text: str) -> dict[str, object]:
 
 
 def body(path: Path) -> str:
-    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    return strip_frontmatter(path.read_text(encoding="utf-8-sig", errors="replace"))
+
+
+def strip_frontmatter(text: str) -> str:
     if not text.startswith("---"):
         return text
     _, _, rest = text.partition("\n---")

@@ -2,7 +2,7 @@
 
 ## About
 
-Second brain for Claude Code: sessions go into a queue when they end, a background process distills insights from them into Obsidian notes, and new sessions load the relevant knowledge through a hook. Plus manual commands for `save`, `note` and `search`. Public repository: https://github.com/cheorges/dory
+Second brain for Claude Code: sessions go into a queue when they end, a background process distills insights from them into one knowledge file per project in Obsidian, and new sessions load that knowledge, or a summary of it, through a hook. Plus manual commands for `save`, `note` and `search`. Public repository: https://github.com/cheorges/dory
 
 ## Tech Stack
 
@@ -14,13 +14,14 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Test 0.3.0 in daily use | In Progress | Fresh vault since 2026-10-17, it holds only what 0.3.0 writes ([Record 002](docs/records/002-note-quality.md), decision 4); the old vault is in `~/.local/state/dory-brain/manual-snapshots/` |
+| One knowledge file per project (0.4.0) | Done | [Record 003](docs/records/003-project-knowledge-file.md): prepared as 0.4.0 on `feat/knowledge-file` (stories S1 to S7, `docs/implementation-log.md`); merge, tag and install by the author |
+| Test 0.4.0 in daily use | Open | After the install: watch `dory status` (removed entries, rewritten leads, restored notes) and the summaries under `~/.local/state/dory-brain/summaries/`. The vault still holds the 0.3.0 notes of the fresh vault since 2026-10-17, which 0.4.0 no longer loads; what happens to them is decided at the release (Record 003) |
 
 **Legend:** Open | In Progress | Done
 
-Second Brain (Record 001) and Note quality (Record 002) are released; versions are in [CHANGELOG.md](CHANGELOG.md), currently 0.3.0.
+Second Brain (Record 001) and Note quality (Record 002) are released, One knowledge file per project (Record 003) is prepared; versions are in [CHANGELOG.md](CHANGELOG.md), released 0.3.0, prepared 0.4.0.
 
-**Next Step:** Watch what 0.3.0 writes into the fresh vault: few knowledge notes, names after their statement, renames and deletions in `runs.log`. A run used 0.3.0 if its `~/.local/state/dory-brain/work/<entry>/task.md` opens with "Write every note in German". Sessions that started before an update are still processed by the old worker when they end, until `/reload-plugins` in them. Releasing: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request, tag `vX.Y.Z` on `main` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
+**Next Step:** Release 0.4.0: merge `feat/knowledge-file` through a pull request, tag `v0.4.0` on `main` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session (a session started before still runs the 0.3.0 hooks, and when it ends its 0.3.0 worker processes everything then in the queue the 0.3.0 way). Then decide what happens to the 0.3.0 notes in the vault. Releasing in general: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request, tag `vX.Y.Z` on `main` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
 
 ### Future
 
@@ -42,7 +43,8 @@ Second Brain (Record 001) and Note quality (Record 002) are released; versions a
 | 2026-10-12 | Public history starts fresh with the 0.1.0 commits; the old history exists only on local `backup/*` branches | The old commits carried German text and customer names |
 | 2026-10-12 | Marketplace named `brain`, plugin installed as `dory@brain`, also on the author's machine from GitHub | Short install command; the author runs exactly what users get, so changes need a push and `plugin update` |
 | 2026-10-15 | Session start injects knowledge only: no open items, no recent sessions ([Record 002](docs/records/002-note-quality.md)) | Both repeat what the CLAUDE.md, `git log` and handover notes already say, and open items go stale because the worker only sees transcripts; the start should bring what one would not know to ask for |
-| 2026-10-16 | Knowledge notes only when they really matter, named after their core statement; a stale note is corrected and renamed, a note the CLAUDE.md covers is deleted ([Record 002](docs/records/002-note-quality.md), decision 6) | The vault is a living second brain: the project view shows only what holds now; history lives in the session logs and the snapshots. 15 of 15 sessions had produced notes, a third of them describing the code |
+| 2026-10-19 | One `knowledge.md` per scope (project, `general/`, `private/`) kept by the worker, the user's notes in `notes.md`, a summary by the worker over the limit ([Record 003](docs/records/003-project-knowledge-file.md)); replaces single knowledge notes and their renaming of 2026-10-16 | Single notes grew to 13 files and 15,470 characters in two days in one project, beyond the session start's 6,000 characters; one file reads as one text, and the post-run checks make a lost entry visible |
+| 2026-10-19 | Every test runs with `DORY_NO_SPAWN=1` (`tests/conftest.py`); a test that needs the start patches `spawn.spawn_worker` | A worker started from a test reads the default state directory, the user's real one; in Record 003 S4 a test-started worker ran against it (nothing was processed) |
 | 2026-10-17 | Fresh vault instead of cleaning up the old one; only what 0.3.0 wrote stays ([Record 002](docs/records/002-note-quality.md), decision 4) | The old content had vanished from the vault on 2026-10-16 (cause unknown, not dory), and what two pre-update sessions wrote followed the 0.2.0 rules; a vault 0.3.0 writes alone shows what it does. The old vault stays as a manual snapshot |
 
 The design decisions of 2026-10-09 (one global memory, Obsidian, vault without git, project = git repo, one rules skill) are in [Record 001](docs/records/001-second-brain.md).
@@ -64,9 +66,9 @@ The design decisions of 2026-10-09 (one global memory, Obsidian, vault without g
 See [Record 001](docs/records/001-second-brain.md) and the README.
 
 - **Capture:** the `SessionEnd` hook puts a transcript copy into a queue; manually also with `/dory:save`
-- **Processing:** a background worker drains the queue, assigns the session to a project, writes and cleans up notes; renames and deletions the run marks are carried out by dory's code afterwards (`vaultops.py`)
-- **Recall:** the `SessionStart` hook loads the project line and ranked knowledge notes within a token budget, plus a pointer to sessions still in the queue
-- **Commands:** `/dory:save`, `/dory:note "..."`, `/dory:search`
+- **Processing:** a background worker drains the queue, assigns the session to a project and edits the entries of the knowledge files; dory's code checks every run against a baseline of the vault (`baseline.py`), and after the queue the worker writes a summary of every context over the limit (`summarize.py`)
+- **Recall:** the `SessionStart` hook loads the project line, the `notes.md` and `knowledge.md` of the session's context (or their summary over the limit), the paths of lists, and a pointer to sessions still in the queue; a project is private only when the user sets `domain: private` in its `knowledge.md` (before that file exists, a 0.3.0 overview's `domain: private` decides)
+- **Commands:** `/dory:save`, `/dory:note "..."` (writes through `dory add-note`), `/dory:search` (single entries)
 
 ---
 

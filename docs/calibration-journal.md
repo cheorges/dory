@@ -14,3 +14,16 @@ Estimated against actual time per iteration. Actual times come from the herdr jo
 | S7: living notes with telling names | 3 | 2026-10-16 11:56 | 13:03 | 72 min / 50 min | ok 13:58 | five review passes, the retry mechanism built and removed again, the language check fixed in a third attempt; human time includes reading the review packages and two decisions |
 | S6: release 0.3.0 prepared | 0.2 | 2026-10-15 15:30 | 15:45 | 19 min / not measurable | ok 2026-10-16 08:42 | human time spans the pause for the usage limit and the night; includes two review rounds on the CHANGELOG text |
 | S5: clean up the existing vault | 0.5 | | | | | dropped on 2026-10-17: a fresh vault instead (Record 002, decision 4); the reset took a few minutes and is not measured |
+
+## Record 003: One knowledge file per project
+
+| Story | Est. (h) | Start | Impl. done | Actual (agent / human) | Review/DoD | Note |
+|-------|----------|-------|------------|------------------------|------------|------|
+| D: design review | 0.3 | 2026-10-19 12:20 | 12:35 | 14 min / 13 min | ok 12:47 | architect review against the code, 19 findings (3 P1) worked in, one question to the user; the design itself (09:58 to 12:20) was a conversation with the user and is not counted |
+| S1: entries and post-run checks | 1 | 2026-10-19 12:48 | 13:16 | 28 min / 36 min | ok 13:52 | agent time includes three review passes (two reviewers, then one); 9 findings, one P1 that changed the baseline from per entry to per attempt; human time is reading the review package |
+| S2: the worker keeps one knowledge file per scope | 1.5 | 2026-10-19 13:53 | 14:55 | 62 min / 21 min | ok 15:16 | agent time includes about 110 live runs (8 min of probes, five suite rounds), two review passes (three reviewers, then one) and two rule fixes after failed live rounds |
+| S3: the session start loads the files | 0.5 | 2026-10-19 15:18 | 15:35 | 17 min / 0.2 min | ok 15:35 | agent time includes two review passes (three reviewers, then one); 5 findings, one P2 found by all three; no live runs |
+| S4: a summary over the limit | 1.5 | 2026-10-19 15:36 | 16:03 | 27 min / 1.7 min | ok 16:05 | agent time includes a live probe with positive control and two live checks (12 runs, about 0.01 USD), seven mutations, two review passes (three reviewers, then one); 1 P1 (tests started a real worker on the user's state), 1 P2, 5 P3 |
+| S5: `/dory:note` writes the user's notes | 0.5 | 2026-10-19 16:06 | 16:31 | 26 min / 14 min | ok 16:45 | agent time includes five live rounds of the seven note checks (about 70 s each), two review passes (three reviewers, then one); 1 P2 found by all three (no lock between add-note and a running worker), 2 P3; human time is reading the review package |
+| S6: search finds single entries | 0.3 | 2026-10-19 16:45 | 16:56 | 11 min / 15 min | ok 17:11 | agent time includes three live rounds of the two search checks and one review pass (three reviewers, all `correct`, 3 small findings); human time is reading the review package |
+| S7: release 0.4.0 prepared | 0.3 | 2026-10-19 17:12 | 17:21 | 10 min / 45 min | ok 18:05 | agent time includes one documentation review (6 findings, one P2 on deleting private overviews too early); human time is reading the release package |
