@@ -7,7 +7,7 @@ are counted in local time, the week starting on Monday.
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from dory import queue, worker
@@ -20,6 +20,7 @@ class Run:
     outcome: str
     cost: float
     error: str
+    changes: tuple[dict, ...] = ()  # the vault changes the post-run checks reported
 
 
 def status(state: StateDir, now: datetime | None = None) -> str:
@@ -46,6 +47,9 @@ def status(state: StateDir, now: datetime | None = None) -> str:
         f"API equivalent: today {cost_today:.2f} USD, this week {cost_week:.2f} USD"
         " (runs on the subscription, not billed)"
     )
+    knowledge = _knowledge_today(runs, today)
+    if knowledge:
+        lines.append(knowledge)
     if failed:
         lines.append("Try again: dory retry")
     return "\n".join(lines)
@@ -74,6 +78,35 @@ def retry(state: StateDir) -> int | None:
         return moved
 
 
+def _knowledge_today(runs: list[Run], today: date) -> str:
+    """What the post-run checks reported today; every attempt reports only its own changes."""
+    todays = [run for run in runs if run.at.date() == today]
+    counts = {
+        change: sum(_count(run, change) for run in todays)
+        for change in ("removed", "rewritten", "restored", "unexpected", "failed")
+    }
+    if not any(counts.values()):
+        return ""
+    return (
+        f"Knowledge today: {_plural(counts['removed'], 'entry', 'entries')} removed, "
+        f"{_plural(counts['rewritten'], 'lead', 'leads')} rewritten, "
+        f"{_plural(counts['restored'], 'file', 'files')} restored, "
+        f"{_plural(counts['unexpected'], 'unexpected file', 'unexpected files')}, "
+        f"{_plural(counts['failed'], 'failed check', 'failed checks')} (details in runs.log)"
+    )
+
+
+def _count(run: Run, change: str) -> int:
+    """A changed entry with its old lead beside it counts as rewritten: a pairing to look at."""
+    if change == "rewritten":
+        return sum(1 for item in run.changes if item.get("change") == "changed" and item.get("was"))
+    return sum(1 for item in run.changes if item.get("change") == change)
+
+
+def _plural(count: int, one: str, many: str) -> str:
+    return f"{count} {one if count == 1 else many}"
+
+
 def _runs(log: Path) -> list[Run]:
     if not log.is_file():
         return []
@@ -82,12 +115,16 @@ def _runs(log: Path) -> list[Run]:
         try:
             record = json.loads(line)
             at = datetime.fromisoformat(record["at"]).astimezone()
+            changes = tuple(
+                item for item in record.get("vault_changes") or [] if isinstance(item, dict)
+            )
             runs.append(
                 Run(
                     at,
                     str(record.get("outcome", "")),
                     float(record.get("cost_usd") or 0),
                     str(record.get("error") or ""),
+                    changes,
                 )
             )
         except (ValueError, KeyError, TypeError, AttributeError):

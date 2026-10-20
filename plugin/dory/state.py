@@ -21,6 +21,10 @@ class StateDir:
         return self.root / "work"
 
     @property
+    def baselines(self) -> Path:
+        return self.root / "baselines"
+
+    @property
     def done(self) -> Path:
         return self.root / "done"
 
@@ -31,6 +35,10 @@ class StateDir:
     @property
     def sessions(self) -> Path:
         return self.root / "sessions"
+
+    @property
+    def summaries(self) -> Path:
+        return self.root / "summaries"
 
     @property
     def lock_file(self) -> Path:
@@ -49,9 +57,11 @@ class StateDir:
             self.queue,
             self.transcripts,
             self.work,
+            self.baselines,
             self.done,
             self.failed,
             self.sessions,
+            self.summaries,
         ):
             directory.mkdir(parents=True, exist_ok=True)
         return self

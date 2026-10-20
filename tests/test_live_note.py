@@ -1,4 +1,4 @@
-"""Live checks of /dory:note and /dory:search against a real `claude -p` session (Stories 9, 10).
+"""Live checks of /dory:note and /dory:search against a real `claude -p` session.
 
 They cost money and depend on the model, so they are skipped by default:
     DORY_LIVE=1 uv run pytest -m live tests/test_live_note.py   # DORY_LIVE_MODEL, default haiku
@@ -13,7 +13,6 @@ from pathlib import Path
 
 import pytest
 
-from dory.frontmatter import read_frontmatter
 from dory.project import project_for_root
 from dory.state import StateDir
 
@@ -21,6 +20,11 @@ pytestmark = pytest.mark.live
 
 PLUGIN = Path(__file__).resolve().parents[1] / "plugin"
 HUB = "ai-assistant-hub"
+KNOWLEDGE = (
+    "---\ntype: knowledge\ndomain: work\nsummary: KoliChat platform\n---\n## Facts\n"
+    "- **Loki listens on port 3100.** Set in the compose file.\n"
+)
+PROJECT_NOTES = "---\ntype: notes\n---\n- 2026-10-01: Deploys only after the customer's ok\n"
 
 
 @pytest.fixture
@@ -34,11 +38,8 @@ def world(tmp_path):
     project_for_root(hub.resolve(), state.projects_file)
     home = tmp_path / "home"
     home.mkdir()
-    write(
-        vault / "projects" / HUB / f"{HUB}.md",
-        "---\ntype: project\ndomain: work\nsummary: KoliChat-Plattform\n---\n"
-        "## Open\n\n## Knowledge\n",
-    )
+    write(vault / "projects" / HUB / "knowledge.md", KNOWLEDGE)
+    write(vault / "projects" / HUB / "notes.md", PROJECT_NOTES)
     return vault, state, hub.resolve(), home
 
 
@@ -75,83 +76,82 @@ def run_skill(vault: Path, state: StateDir, cwd: Path, prompt: str) -> dict:
     return output
 
 
-def test_note_in_a_project_becomes_knowledge_of_that_project(world):
+def notes_files(vault: Path) -> dict[str, str]:
+    return {
+        str(path.relative_to(vault)): path.read_text() for path in sorted(vault.rglob("notes.md"))
+    }
+
+
+def test_a_note_in_a_project_goes_into_its_notes_in_the_users_words(world):
     vault, state, hub, _ = world
 
     output = note(vault, state, hub, "Loki port 3100 clashes with Grafana")
 
-    notes = [
-        path
-        for path in (vault / "projects" / HUB).glob("*.md")
-        if read_frontmatter(path).get("type") not in ("project", None)
-    ]
-    assert len(notes) == 1, output["result"]
-    meta = read_frontmatter(notes[0])
-    assert meta["projects"] == [f"[[{HUB}]]"]
-    assert meta["domain"] == "work"
-    assert meta["summary"] and meta["when"]
-    assert meta.get("sources") == []
-    assert "3100" in notes[0].read_text()
+    notes = (vault / "projects" / HUB / "notes.md").read_text()
+    assert notes.startswith(PROJECT_NOTES), notes
+    assert notes.endswith(": Loki port 3100 clashes with Grafana\n"), notes
+    assert (vault / "projects" / HUB / "knowledge.md").read_text() == KNOWLEDGE
+    assert list(notes_files(vault)) == [f"projects/{HUB}/notes.md"]
+    assert f"{HUB}/notes.md" in output["result"], output["result"]
 
 
-def test_note_at_home_extends_the_shopping_list(world):
-    vault, state, _, home = world
+def test_a_general_note_from_a_project_goes_into_general(world):
+    vault, state, hub, _ = world
+
+    output = note(vault, state, hub, "remember in general: Python packages with uv instead of pip")
+
+    general = vault / "general" / "notes.md"
+    assert general.is_file(), output["result"]
+    assert "Python packages with uv instead of pip" in general.read_text()
+    assert "remember in general" not in general.read_text().lower()
+    assert (vault / "projects" / HUB / "notes.md").read_text() == PROJECT_NOTES
+
+
+def test_a_note_about_the_home_nas_from_a_work_project_goes_into_private(world):
+    vault, state, hub, _ = world
+
+    output = note(vault, state, hub, "my home NAS backs up every night at 02:00")
+
+    private = vault / "private" / "notes.md"
+    assert private.is_file(), output["result"]
+    assert "my home NAS backs up every night at 02:00" in private.read_text()
+    assert set(notes_files(vault)) == {f"projects/{HUB}/notes.md", "private/notes.md"}
+    assert (vault / "projects" / HUB / "notes.md").read_text() == PROJECT_NOTES
+
+
+@pytest.mark.parametrize(
+    ("where", "text"),
+    [("project", "add milk to the shopping list"), ("home", "buy milk")],
+    ids=["in-a-project", "outside-a-repository"],
+)
+def test_a_shopping_item_goes_onto_the_list_and_no_notes_change(world, where, text):
+    vault, state, hub, home = world
     shopping = vault / "notes" / "shopping-list.md"
     write(shopping, "---\ntype: list\ndomain: private\nsummary: Shopping list\n---\n- [ ] Bread\n")
 
-    output = note(vault, state, home, "buy milk")
+    output = note(vault, state, hub if where == "project" else home, text)
 
-    text = shopping.read_text()
-    assert "milk" in text.lower() and "Bread" in text, output["result"]
-    assert read_frontmatter(shopping)["type"] == "list"
-    assert len(list(vault.rglob("*.md"))) == 2  # overview and the list, nothing new
-
-
-def test_note_on_a_known_topic_extends_the_existing_note(world):
-    vault, state, hub, _ = world
-    existing = vault / "projects" / HUB / f"{HUB}-loki-port-3100.md"
-    write(
-        existing,
-        f'---\ntype: fact\nprojects: ["[[{HUB}]]"]\ndomain: work\n'
-        "summary: Loki listens on port 3100.\nwhen: When configuring Loki\n"
-        "pinned: false\nstatus: active\nsuperseded_by:\ncreated: 2026-10-01\n"
-        'updated: 2026-10-01\nsources: ["[[alt]]"]\n---\nLoki listens on port 3100.\n',
-    )
-
-    output = note(vault, state, hub, "Loki port 3100 clashes with Grafana")
-
-    knowledge = [p for p in (vault / "projects" / HUB).glob("*.md") if p.name != f"{HUB}.md"]
-    assert knowledge == [existing], output["result"]
-    assert "Grafana" in existing.read_text()
-    assert read_frontmatter(existing)["updated"] != "2026-10-01"
+    listed = shopping.read_text()
+    assert "milk" in listed.lower() and "Bread" in listed, output["result"]
+    assert notes_files(vault) == {f"projects/{HUB}/notes.md": PROJECT_NOTES}
+    assert (vault / "projects" / HUB / "knowledge.md").read_text() == KNOWLEDGE
 
 
-def test_note_in_a_repo_the_worker_never_saw_lands_in_that_project(world, tmp_path):
-    vault, state, _, _ = world
-    fresh = tmp_path / "code" / "teko"
-    fresh.mkdir(parents=True)
-    subprocess.run(["git", "init", "-q"], cwd=fresh, check=True)
-
-    output = note(vault, state, fresh, "Teko backups run every night at 02:00 on the NAS")
-
-    notes = [p for p in (vault / "projects" / "teko").glob("*.md") if p.name != "teko.md"]
-    assert len(notes) == 1, output["result"]
-    assert read_frontmatter(notes[0])["projects"] == ["[[teko]]"]
-    assert (vault / "projects" / "teko" / "teko.md").is_file()
-
-
-def test_search_finds_the_note_and_says_where(world):
+def test_search_finds_the_entry_and_says_where(world):
     vault, state, hub, _ = world
     write(
-        vault / "projects" / HUB / f"{HUB}-loki-uid-10001.md",
-        f'---\ntype: gotcha\nprojects: ["[[{HUB}]]"]\ndomain: work\n'
-        "summary: Loki only starts if the volume is owned by UID 10001.\n"
-        "when: When deploying Loki\nstatus: active\n---\nchown -R 10001:10001\n",
+        vault / "projects" / HUB / "knowledge.md",
+        KNOWLEDGE.replace(
+            "## Facts\n",
+            "## Pitfalls\n- **Loki only starts if the volume is owned by UID 10001.** "
+            "Run `chown -R 10001:10001` before deploying.\n\n## Facts\n",
+        ),
     )
 
     output = run_skill(vault, state, hub, "/dory:search loki deploy")
 
-    assert f"{HUB}-loki-uid-10001" in output["result"]
+    assert "10001" in output["result"], output["result"]
+    assert f"{HUB}/knowledge.md" in output["result"], output["result"]
 
 
 def test_search_grants_only_its_own_command(world):

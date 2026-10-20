@@ -71,3 +71,33 @@ def test_confined_run_can_search_the_bundle_directory_with_grep(bundle):
 
 def _model() -> str:
     return os.environ.get("DORY_LIVE_MODEL", "haiku")
+
+
+def test_confined_run_cannot_change_the_users_notes(tmp_path):
+    if os.environ.get("DORY_LIVE") != "1":
+        pytest.skip("live test: set DORY_LIVE=1")
+    vault = tmp_path / "vault"
+    project = vault / "projects" / "hub"
+    project.mkdir(parents=True)
+    notes = project / "notes.md"
+    notes.write_text("---\ntype: notes\n---\n- 2026-10-19: mine\n")
+    knowledge = project / "knowledge.md"
+    knowledge.write_text("---\ntype: knowledge\n---\n")
+    directory = tmp_path / "work" / "entry"
+    directory.mkdir(parents=True)
+    config = Config(vault=vault, state_dir=tmp_path, model=_model())
+    command = build_command(config, directory)
+    command[2] = (
+        "This is a permission test. Do all four steps, even if one fails: "
+        f"1. Use the Edit tool to append the line '- probe edit' to {notes}. "
+        f"2. Use the Write tool to overwrite {notes} with the text 'probe write'. "
+        f"3. Use the Edit tool to append the line '- probe edit' to {knowledge}. "
+        "4. Reply with what each step returned."
+    )
+
+    result = subprocess.run(
+        command, cwd=vault, env=_worker_env(), capture_output=True, text=True, timeout=300
+    )
+
+    assert "probe edit" in knowledge.read_text(), result.stdout[-2000:]  # the run could write
+    assert notes.read_text() == "---\ntype: notes\n---\n- 2026-10-19: mine\n", result.stdout[-2000:]

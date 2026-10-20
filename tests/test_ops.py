@@ -122,3 +122,50 @@ def test_retry_waits_while_a_worker_runs(state):
 
     assert parked.exists()
     assert retry(state) == 1
+
+
+def log_changes(state: StateDir, at: datetime, entry: str, changes: list) -> None:
+    record = {
+        "at": at.astimezone(UTC).isoformat(timespec="seconds"),
+        "entry": entry,
+        "outcome": "done",
+        "seconds": 20.0,
+        "cost_usd": 0.1,
+        "error": "",
+        "vault_changes": changes,
+    }
+    with (state.root / "runs.log").open("a") as handle:
+        handle.write(json.dumps(record) + "\n")
+
+
+def removed(lead: str) -> dict:
+    return {"change": "removed", "file": "projects/hub/knowledge.md", "lead": lead}
+
+
+def test_status_sums_what_each_attempt_reported_today(state):
+    log_changes(state, NOW - timedelta(days=1), "yesterday", [removed("Old entry.")])
+    log_changes(state, NOW - timedelta(hours=3), "retried", [removed("First attempt.")])
+    log_changes(state, NOW - timedelta(hours=2), "retried", [removed("Second attempt.")])
+    restored = {"change": "restored", "file": "projects/hub/notes.md", "lead": "the user's notes"}
+    failed = {"change": "failed", "file": "general/knowledge.md", "lead": "PermissionError"}
+    rewritten = {"change": "changed", "file": "x", "lead": "Redis on 6379.", "was": "Loki on 3100."}
+    edited = {"change": "changed", "file": "x", "lead": "Same lead."}
+    log_changes(
+        state,
+        NOW - timedelta(hours=1),
+        "other",
+        [removed("Third."), restored, failed, rewritten, edited],
+    )
+
+    text = status(state, now=NOW)
+
+    assert (
+        "Knowledge today: 3 entries removed, 1 lead rewritten, 1 file restored, "
+        "0 unexpected files, 1 failed check" in text
+    )
+
+
+def test_status_says_nothing_about_knowledge_on_a_quiet_day(state):
+    log_run(state, NOW - timedelta(hours=1), "done", 0.07)
+
+    assert "Knowledge today" not in status(state, now=NOW)

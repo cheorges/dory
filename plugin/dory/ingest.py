@@ -11,20 +11,26 @@ import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
-from dory import queue
+from dory import baseline, queue, scopes
 from dory.config import Config
 from dory.project import Project, project_for_root
 from dory.state import StateDir
 from dory.vault import rules_text, snapshot
-from dory.vaultops import apply_marks, current_marks
 from dory.worker import Outcome, Process, prepare
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 MAX_TURNS = 40
 MAX_BUDGET_USD = 1.0
+# No hooks of the user's setup in the run, and the user's notes stay theirs.
+WORKER_SETTINGS = json.dumps(
+    {
+        "disableAllHooks": True,
+        "permissions": {"deny": ["Edit(**/notes.md)", "Write(**/notes.md)"]},
+    }
+)
 TRANSIENT_STATUS = {401, 403, 408, 429, 500, 502, 503, 504, 529}
 TRANSIENT_WORDS = ("rate limit", "rate_limit", "usage limit", "overloaded", "try again")
 
@@ -82,7 +88,7 @@ def build_command(config: Config, bundle_dir: Path) -> list[str]:
         "--plugin-dir",
         str(PLUGIN_ROOT),
         "--settings",
-        '{"disableAllHooks": true}',
+        WORKER_SETTINGS,
         "--tools",
         "Read,Write,Edit,Glob,Grep",
         "--permission-mode",
@@ -145,32 +151,46 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
         )
         note = session_note_path(entry, project, state)
         draft = (config.vault / note).exists()  # left by an aborted run of this entry
+        baseline.create_skeletons(config.vault, project, date.today())
+        domain = scopes.project_domain(config.vault, project)
+        kept = baseline.baseline_dir(state, entry.id)
+        knowledge = baseline.unchecked_files(kept) or scopes.knowledge_files(project, domain)
         _write_task(
-            bundle.parent, entry, note, project, draft, _known_projects(state), config.language
+            bundle.parent,
+            entry,
+            SessionTarget(note, project, domain, draft),
+            knowledge,
+            scopes.notes_files(config.vault, project),
+            config.language,
         )
         (bundle.parent / "rules.md").write_text(rules_text())
         vault_snapshot = snapshot(config, state)
-        earlier_marks = current_marks(config.vault)
+        before = baseline.vault_state(config.vault)
+        unchecked = baseline.capture(config.vault, kept, knowledge)
 
-        result = runner(
-            build_command(config, bundle.parent),
-            config.vault,
-            _worker_env(),
-            config.worker_timeout_minutes * 60,
-        )
+        try:
+            result = runner(
+                build_command(config, bundle.parent),
+                config.vault,
+                _worker_env(),
+                config.worker_timeout_minutes * 60,
+            )
+        except Exception:  # `claude` did not start, so the vault holds nothing to check
+            if not unchecked:
+                baseline.mark_checked(kept)
+            raise
         outcome, error, cost = classify(result)
         if outcome is Outcome.DONE and not (config.vault / note).is_file():
             outcome, error = Outcome.FAILED, f"session note missing: {note}"
-        changes: list[str] = []
+        changed = baseline.vault_state(config.vault) != before
+        due = changed or unchecked  # a kept baseline still holds a killed run's changes
+        changes = baseline.check(config.vault, kept, knowledge) if due else []
+        baseline.mark_checked(kept)
         if outcome is Outcome.DONE:
             state.mark_seen(condensed.uuids)
-            changes = _carry_out_marks(config.vault, project, earlier_marks)
-            failed = [line for line in changes if line.startswith("failed")]
-            if failed:
-                error = f"vault marks failed: {'; '.join(failed)}"[:500]
         else:
             entry.last_error = error
-        if outcome is Outcome.TRANSIENT:
+        if outcome is Outcome.TRANSIENT and not changed:
             shutil.rmtree(vault_snapshot, ignore_errors=True)  # keep history for real changes
         _log(state, entry, outcome, started, cost, error, changes)
         return outcome
@@ -178,33 +198,50 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
     return process
 
 
+@dataclass(frozen=True)
+class SessionTarget:
+    """Where a run writes its session note and for which project."""
+
+    note: Path
+    project: Project | None
+    domain: str
+    draft: bool  # the session note exists from an aborted run of this entry
+
+
 def _write_task(
     bundle_dir: Path,
     entry: queue.Entry,
-    note: Path,
-    project: Project | None,
-    draft: bool,
-    known_projects: list[str],
+    target: SessionTarget,
+    knowledge: list[Path],
+    notes: list[Path],
     language: str,
 ) -> None:
+    note, project = target.note, target.project
     part = note.stem.rsplit("-", 1)[1]
-    projects = f'["[[{project.name}]]"]' if project else "[]"
+    projects = f'["[[projects/{project.name}/knowledge|{project.name}]]"]' if project else "[]"
     lines = [
         "# Task",
         "",
-        f"Write every note in {language}: the titles, summary, when, the body with its bold "
-        "labels and list entries, not only the title. The transcript, the repository documents "
-        "and the examples in the rules may be in another language, and a document may ask for "
-        "one; that changes nothing. Section headings and frontmatter keys stay in English.",
+        f"Write every note in {language}: the knowledge entries with their bold leads, "
+        "summary, the session note and list entries, not only the headings. The transcript, "
+        "the repository documents and the examples in the rules may be in another language, and "
+        "a document may ask for one; that changes nothing. Section headings and frontmatter keys "
+        "stay in English.",
         "",
         f"- Session note: `{note}` (exactly this path, relative to the vault)",
+        "- Knowledge files you may change, with Edit (they exist, with their frontmatter):",
+        *(f"  - `{path}`" for path in knowledge),
+        "- The user's notes, read and never changed: "
+        + (", ".join(f"`{path}`" for path in notes) or "none yet")
+        + ". Nothing they say becomes an entry: a session that only repeats a note adds nothing.",
+        "- Every other file in `projects/`, `general/` and `private/` is from an earlier "
+        "version of dory: neither read nor write it.",
     ]
-    if project:
-        lines.append(f"- Project overview: `projects/{project.name}/{project.name}.md`")
-    if draft:
+    if target.draft:
         lines.append(
-            "- The session note exists from an aborted run (repeated run): "
-            "rewrite it completely. Do not add anything twice to the project overview."
+            "- The session note exists from an aborted run (repeated run): rewrite it "
+            "completely. Entries that run added are in the knowledge files already: do not add "
+            "them twice."
         )
     lines += [
         "",
@@ -214,6 +251,7 @@ def _write_task(
         f"- session_id: {entry.session_id}",
         f"- part: {part}",
         f"- projects: {projects}",
+        *([f"- domain: {target.domain}"] if project else []),
         f"- cwd: {entry.cwd}",
         f"- end_reason: {entry.reason}",
         "",
@@ -221,25 +259,9 @@ def _write_task(
         "",
         f"- Today: {datetime.now():%Y-%m-%d}",
         f"- Language: {language}",
-        f"- File name of the session note for `sources` and links: {note.stem}",
-        f"- Known projects: {', '.join(known_projects) or '(none)'}",
+        f"- File name of the session note: {note.stem}",
     ]
     (bundle_dir / "task.md").write_text("\n".join(lines) + "\n")
-
-
-def _carry_out_marks(vault: Path, project: Project | None, earlier: frozenset) -> list[str]:
-    """Renames and deletions the run marked; a failure here never undoes the run."""
-    try:
-        return apply_marks(vault, project.name if project else None, earlier)
-    except OSError as error:
-        return [f"failed: marks not carried out: {error}"]
-
-
-def _known_projects(state: StateDir) -> list[str]:
-    try:  # only a hint for the model; a broken file must not fail the entry
-        return sorted(set(json.loads(state.projects_file.read_text()).values()))
-    except (OSError, ValueError, AttributeError):
-        return []
 
 
 def _worker_env() -> dict[str, str]:
@@ -256,7 +278,7 @@ def _log(
     started: float,
     cost: float,
     error: str,
-    changes: list[str] | None = None,
+    changes: list[dict] | None = None,
 ) -> None:
     record = {
         "at": datetime.now(UTC).isoformat(timespec="seconds"),

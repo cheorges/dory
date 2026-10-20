@@ -1,9 +1,9 @@
 import subprocess
 
-from dory import repodocs
+from dory import repodocs, scopes
 from dory.bundle import build_bundle
 from dory.condense import Condensed
-from dory.project import detect_project
+from dory.project import Project, detect_project
 from dory.queue import Entry
 
 
@@ -40,3 +40,33 @@ def test_bundle_without_captured_documents_says_so(tmp_path):
     text = build_bundle(entry, project, Condensed(text="**User:** hello"), docs=None)
 
     assert "not captured" in text
+
+
+def test_the_domain_comes_from_the_projects_knowledge_file(tmp_path):
+
+    vault = tmp_path / "vault"
+    knowledge = vault / "projects" / "hub" / "knowledge.md"
+    knowledge.parent.mkdir(parents=True)
+    knowledge.write_text("---\ntype: knowledge\ndomain: private\n---\n")
+    hub = Project(name="hub", root=tmp_path)
+
+    assert scopes.project_domain(vault, hub) == "private"
+    assert scopes.project_domain(vault, Project(name="new", root=tmp_path)) == "work"
+    assert scopes.project_domain(vault, None) == "work"
+
+
+def test_bundle_names_the_domain_it_is_given(tmp_path):
+    entry = Entry(
+        session_id="s",
+        transcript_copy="",
+        cwd=str(tmp_path),
+        reason="clear",
+        ended_at="2026-10-19T08:00:00.000000Z",
+        repo_root=str(tmp_path),
+    )
+
+    text = build_bundle(
+        entry, Project(name="hub", root=tmp_path), Condensed(text="x"), domain="private"
+    )
+
+    assert "- domain: private" in text

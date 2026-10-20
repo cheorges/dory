@@ -1,8 +1,8 @@
-"""Drain the queue one entry at a time under a lock.
+"""Drain the queue one entry at a time under a lock, then bring the summaries up to date.
 
 Only one worker runs at a time (flock; the kernel drops the lock when the process dies).
-After releasing the lock the queue is checked again, so an entry that arrives while the
-lock is being released is not left lying until the next session ends.
+After releasing the lock the queue and the summary marks are checked again, so work that
+arrives while the lock is being released is not left lying until the next session ends.
 """
 
 import fcntl
@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 
-from dory import queue, repodocs
+from dory import baseline, queue, repodocs, scopes, summary
 from dory.bundle import build_bundle, write_bundle
 from dory.condense import condense
 from dory.config import Config
@@ -30,20 +30,30 @@ class Outcome(Enum):
 
 
 Process = Callable[[Path, queue.Entry], Outcome]
+# Brings the named contexts' summaries up to date; True when the pass must stop.
+Summarize = Callable[[set[str]], bool]
 
 
-def run(state: StateDir, process: Process) -> str:
+def run(state: StateDir, process: Process, summarize: Summarize | None = None) -> str:
     state.ensure()
     tried: set[str] = set()
+    summarized: set[str] = set()  # one try per context and pass
     while True:
         with lock(state) as held:
             if not held:
                 return "busy"
             repodocs.sweep(state)
-            stopped = _drain(state, process, tried)
+            baseline.sweep(state)
+            processed: set[str] = set()
+            stopped = _drain(state, process, tried, processed)
+            if not stopped and summarize:
+                due = (processed | summary.marked(state)) - summarized
+                summarized |= due
+                stopped = summarize(due)
         if stopped:
             return "stopped"
-        if not _untried(state, tried):
+        waiting = summarize and summary.marked(state) - summarized
+        if not _untried(state, tried) and not waiting:
             return "done"
 
 
@@ -59,7 +69,10 @@ def prepare(entry: queue.Entry, config: Config, state: StateDir):
     root = Path(entry.repo_root) if entry.repo_root else None
     project = project_for_root(root, state.projects_file) if root else None
     docs = repodocs.docs_dir(state, entry.id)
-    bundle = write_bundle(state.work, entry.id, build_bundle(entry, project, condensed, docs))
+    domain = scopes.project_domain(config.vault, project)
+    bundle = write_bundle(
+        state.work, entry.id, build_bundle(entry, project, condensed, docs, domain)
+    )
     return bundle, condensed
 
 
@@ -92,24 +105,26 @@ def _untried(state: StateDir, tried: set[str]) -> list[Path]:
     return [path for path in queue.pending(state) if path.name not in tried]
 
 
-def _drain(state: StateDir, process: Process, tried: set[str]) -> bool:
+def _drain(state: StateDir, process: Process, tried: set[str], processed: set[str]) -> bool:
+    """Process the queue; `processed` collects the contexts of the entries that are done."""
     while candidates := _untried(state, tried):
         for path in candidates:
             tried.add(path.name)
-            if _handle(state, path, process):
+            if _handle(state, path, process, processed):
                 return True
     return False
 
 
-def _handle(state: StateDir, path: Path, process: Process) -> bool:
+def _handle(state: StateDir, path: Path, process: Process, processed: set[str]) -> bool:
     try:
-        return _handle_entry(state, path, process)
+        return _handle_entry(state, path, process, processed)
     finally:
         if not path.exists():  # the entry left the queue: its documents are no longer needed
             repodocs.discard(state, path.stem)
+            baseline.discard(state, path.stem)
 
 
-def _handle_entry(state: StateDir, path: Path, process: Process) -> bool:
+def _handle_entry(state: StateDir, path: Path, process: Process, processed: set[str]) -> bool:
     try:
         entry = queue.load(path)
     except (OSError, ValueError, TypeError):
@@ -123,6 +138,7 @@ def _handle_entry(state: StateDir, path: Path, process: Process) -> bool:
         return True
     if outcome is Outcome.DONE:
         path.replace(state.done / path.name)
+        processed.add(_context_name(state, entry))
         return False
     if outcome is Outcome.SKIPPED:
         # Its own suffix keeps it out of the part numbering of the session's notes.
@@ -133,3 +149,8 @@ def _handle_entry(state: StateDir, path: Path, process: Process) -> bool:
     if entry.attempts >= MAX_ATTEMPTS:
         path.replace(state.failed / path.name)
     return outcome is Outcome.TIMEOUT
+
+
+def _context_name(state: StateDir, entry: queue.Entry) -> str:
+    root = Path(entry.repo_root) if entry.repo_root else None
+    return summary.context_name(project_for_root(root, state.projects_file) if root else None)
