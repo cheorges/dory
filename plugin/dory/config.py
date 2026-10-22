@@ -22,6 +22,8 @@ PLUGIN = "dory"
 MARKETPLACE = "brain"
 # The options `plugin.json` declares under `userConfig`; the rest stays in config.toml.
 PLUGIN_OPTIONS = ("vault", "language", "model", "context", "context_window")
+# The entry of the language list that hands the language to config.toml, for one not on the list.
+OTHER_LANGUAGE = "Other (config.toml)"
 
 
 @dataclass(frozen=True)
@@ -56,8 +58,8 @@ def load_config(env: dict[str, str] | None = None) -> Config:
 
 
 def plugin_options(env: dict[str, str]) -> dict[str, object]:
-    """The options the user set for dory in Claude Code; an empty or invalid value counts as
-    not set."""
+    """The options the user set for dory in Claude Code; an empty or invalid value, and the
+    language entry that points to config.toml, count as not set."""
     raw: dict[str, object] = {
         name: value
         for name in PLUGIN_OPTIONS
@@ -66,7 +68,7 @@ def plugin_options(env: dict[str, str]) -> dict[str, object]:
     raw.update(_saved_options(env))
     found: dict[str, object] = {}
     for name, value in raw.items():
-        if value in ("", None):
+        if value in ("", None) or (name == "language" and value == OTHER_LANGUAGE):
             continue
         if name == "context_window":
             try:

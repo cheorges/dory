@@ -2,7 +2,7 @@
 
 ## Status
 
-Done (2026-10-22): released as 0.8.0.
+Done (2026-10-22): released as 0.8.0; the language list in 0.8.1 and 0.9.0.
 
 ---
 
@@ -49,7 +49,7 @@ Only hooks get the variables. `/dory:note` and `/dory:save` run `dory` through B
 
 ### Decision 5: The note language as a list (0.8.1)
 
-The user asked for a choice list instead of free text, with English as default. The list holds 16 common languages; a language not on it goes into config.toml, which applies while the option is not set. The cost: such a user cannot pick it in `/config`.
+The user asked for a choice list instead of free text, with English as default. The list holds 16 common languages. A language not on it goes into config.toml, which at first applied only while the option was not set; once set in `/config`, a value cannot be emptied again (`claude plugin configure` reports no change for an empty value). Since 0.9.0 the list ends with `Other (config.toml)`: dory treats it as not set, so config.toml decides (`config.OTHER_LANGUAGE`).
 
 ## Solution
 

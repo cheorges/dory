@@ -65,7 +65,7 @@ The main settings are in Claude Code: run `/config` and look for the rows of dor
 | Option | Default | What it sets |
 |---|---|---|
 | Vault folder | `~/Obsidian/dory-brain` | Where the notes live. Not in iCloud Drive, which offloads files. |
-| Note language | `English` | The language the notes are written in, chosen from a list of 16 (English, German, French, Italian, Spanish, ...). Headings stay English. A language not on the list goes into `config.toml`; it applies while the option is not set in `/config`. |
+| Note language | `English` | The language the notes are written in, chosen from a list of 16 (English, German, French, Italian, Spanish, ...). Headings stay English. For another language, choose `Other (config.toml)` and set it in `config.toml` (below). |
 | Worker model | `sonnet` | The model that turns ended sessions into notes: `sonnet`, `haiku` (far less of your usage limit) or `opus` (the most). |
 | Context at session start | `lean` | How much of the context window the session start may load (table below). |
 | Context window (tokens) | `200000` | The smallest context window you work with, e.g. `1000000`. |
@@ -80,9 +80,11 @@ The share is a maximum; a project with little knowledge loads less. Claude Code 
 
 The same five settings, and the advanced ones below, can also go into `~/.config/dory-brain/config.toml`. A value set in Claude Code wins; the file decides only what you have not set there. Until you set them, `/config` shows `English`, `sonnet` and `lean` as defaults even when the file says otherwise, because a choice list needs a default.
 
+A language not on the list: choose `Other (config.toml)` in `/config` and write it into the file, e.g. `language = "Catalan"`.
+
 ```toml
 vault = "~/Obsidian/dory-brain"
-language = "German"
+language = "Catalan"
 model = "opus"
 context = "balanced"
 context_window = 1000000

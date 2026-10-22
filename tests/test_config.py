@@ -115,7 +115,7 @@ def test_unreadable_settings_or_empty_options_leave_the_defaults(tmp_path):
 
 
 def test_the_manifest_declares_exactly_the_options_dory_reads():
-    from dory.config import PLUGIN_OPTIONS
+    from dory.config import OTHER_LANGUAGE, PLUGIN_OPTIONS
 
     manifest = json.loads(
         (Path(__file__).resolve().parents[1] / "plugin/.claude-plugin/plugin.json").read_text()
@@ -128,4 +128,25 @@ def test_the_manifest_declares_exactly_the_options_dory_reads():
     assert (
         options["language"]["default"] == "English" and "German" in options["language"]["options"]
     )
+    assert options["language"]["options"][-1] == OTHER_LANGUAGE
     assert all("default" not in options[name] for name in ("vault", "context_window"))
+
+
+def test_other_in_the_language_list_hands_the_language_to_config_toml(tmp_path):
+    from dory.config import OTHER_LANGUAGE
+
+    toml = tmp_path / "config.toml"
+    toml.write_text('language = "Catalan"\n')
+    other = claude_settings(tmp_path, {"dory@brain": {"options": {"language": OTHER_LANGUAGE}}})
+
+    config = load_config({"DORY_CONFIG": str(toml), "DORY_CLAUDE_SETTINGS": str(other)})
+    bare = load_config(
+        {
+            "DORY_CONFIG": str(tmp_path / "none.toml"),
+            "DORY_CLAUDE_SETTINGS": str(tmp_path / "none.json"),
+            "CLAUDE_PLUGIN_OPTION_LANGUAGE": OTHER_LANGUAGE,
+        }
+    )
+
+    assert config.language == "Catalan"
+    assert bare.language == "English"
