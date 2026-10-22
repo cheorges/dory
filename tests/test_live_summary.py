@@ -99,15 +99,21 @@ def test_a_full_project_is_summarized_within_the_target_in_the_note_language(tmp
     from test_live_rules import german_words, realistic_knowledge
 
     config = Config(
-        vault=tmp_path / "vault", state_dir=tmp_path / "state", model=_model(), language="German"
+        vault=tmp_path / "vault",
+        state_dir=tmp_path / "state",
+        model=_model(),
+        language="German",
+        recall_budget_tokens=1500,  # a limit the realistic file exceeds
     )
     state = StateDir(config.state_dir).ensure()
     body, _ = realistic_knowledge()
     project = config.vault / "projects" / "hub"
     project.mkdir(parents=True)
     (project / "knowledge.md").write_text(f"---\ntype: knowledge\ndomain: work\n---\n{body}")
-    notes = "---\ntype: notes\n---\n- 2026-10-19: Ask before Friday deploys\n"
-    (project / "notes.md").write_text(notes)
+    (project / "notes").mkdir()
+    (project / "notes" / "Deploys.md").write_text(
+        "---\ntype: note\n---\nAsk before Friday deploys.\n"
+    )
 
     assert make_summarize(config, state)({"project-hub"}) is False
 

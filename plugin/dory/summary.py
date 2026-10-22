@@ -27,6 +27,8 @@ GENERAL = "_general"
 _PROJECT = "project-"
 CHARS_PER_TOKEN = 4
 SHARE = 0.8  # of the limit; the rest stays for header, project line, queue lines and paths
+LEVELS = {"lean": 0.05, "balanced": 0.10, "rich": 0.15}  # of the context window
+SUMMARY_MAX_TOKENS = 10_000  # one run writes no more; the lean limit of a 200k window
 _WANTED = ".wanted"
 
 
@@ -79,22 +81,35 @@ def context_named(vault: Path, name: str) -> Context | None:
     return None
 
 
+def limit_tokens(config: Config) -> int:
+    """What the session start may inject: the level's share of the window, or an exact limit."""
+    if config.recall_budget_tokens:
+        return config.recall_budget_tokens
+    return int(config.context_window * LEVELS.get(config.context, LEVELS["lean"]))
+
+
 def limit_chars(config: Config) -> int:
-    return config.recall_budget_tokens * CHARS_PER_TOKEN
+    return limit_tokens(config) * CHARS_PER_TOKEN
+
+
+def threshold_chars(config: Config) -> int:
+    """A project's files longer than this get a summary."""
+    return int(limit_chars(config) * SHARE)
 
 
 def target_chars(config: Config) -> int:
-    return int(limit_chars(config) * SHARE)
+    """The longest summary: the threshold, but never more than one run writes."""
+    return min(threshold_chars(config), SUMMARY_MAX_TOKENS * CHARS_PER_TOKEN)
 
 
 def needs_summary(text: str, config: Config) -> bool:
     """The one test the session start and the worker share."""
-    return len(text) > target_chars(config)
+    return len(text) > threshold_chars(config)
 
 
 def digest(text: str, domain: str, config: Config) -> str:
     """Changes with the text, the domain, the note language and the limit."""
-    key = json.dumps([text, domain, config.language, config.recall_budget_tokens])
+    key = json.dumps([text, domain, config.language, limit_tokens(config)])
     return hashlib.sha256(key.encode()).hexdigest()
 
 

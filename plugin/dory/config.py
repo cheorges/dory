@@ -16,7 +16,9 @@ class Config:
     state_dir: Path
     model: str = "sonnet"
     language: str = "English"  # language the notes are written in
-    recall_budget_tokens: int = 1500
+    context: str = "lean"  # share of the context window the session start may take
+    context_window: int = 200_000  # tokens; the smallest window you work with
+    recall_budget_tokens: int | None = None  # an exact limit in tokens instead of the level
     min_user_messages: int = 3
     condense_max_tokens: int = 30_000
     worker_timeout_minutes: int = 10
