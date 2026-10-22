@@ -14,7 +14,7 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Test 0.9.0 in daily use | Open | Installed on the author's machine and all five options set in Claude Code on 2026-10-22 (vault, German, sonnet, lean, 200000; window 1000000 if the sessions run with 1M windows); the vault and the state's snapshots, transcripts, bundles and summaries were emptied the same day. Watch: the dory rows in `/config`, topic files in `notes/` (title, one subject each, no duplicates), the user's notes untouched, `/dory:library` (proposals, links, entries loading where linked), `dory status` for unexpected changes, and how much the session start loads |
+| Test 0.9.0 in daily use | Open | Installed on the author's machine and all five options set in Claude Code on 2026-10-22 (vault, German, sonnet, lean, 200000; window 1000000 if the sessions run with 1M windows); the vault and the state's snapshots, transcripts, bundles and summaries were emptied the same day. The same evening the vault moved to a new, empty one in iCloud Drive (`~/Library/Mobile Documents/iCloud~md~obsidian/Documents/dory`, set to "Keep Downloaded" in Finder), against the guide's advice, to see whether iCloud harms dory; the old `~/Documents/dory` stays untouched. Watch: sync conflict copies such as `knowledge 2.md` and unexpected changes reported by the checks, the dory rows in `/config`, topic files in `notes/` (title, one subject each, no duplicates), the user's notes untouched, `/dory:library` (proposals, links, entries loading where linked), `dory status` for unexpected changes, and how much the session start loads |
 
 **Legend:** Open | Designed | In Progress | Done
 
