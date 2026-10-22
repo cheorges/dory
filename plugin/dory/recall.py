@@ -21,7 +21,7 @@ worker start, and the session start never waits for it. Without a usable summary
 cut in load order with a marker. The topics and then the titles fill what is left. Nothing from
 `library/` appears unless a project note or a topic file links it. The boundary filters what is
 injected, it is no access control: Claude can still read the vault. A `private/` folder with
-files, from before 0.6.0, gets one line asking the user to rename it.
+files, from before 0.7.0, gets one line asking the user to rename it.
 """
 
 import contextlib
@@ -45,7 +45,7 @@ NOTES_TITLE = "## Notes without a project (read a file when the session touches 
 LEFT_OUT = "- {count} more in notes/: list the folder for them"
 OLD_FOLDER = (
     "## Tell the user\n"
-    "dory reads `library/` since 0.6.0, and `private/` holds {count} files. Rename the folder "
+    "dory reads `library/` since 0.7.0, and `private/` holds {count} files. Rename the folder "
     "to `library` in Obsidian, which updates the links to it."
 )
 SESSION_FILE_MAX_AGE_DAYS = 30

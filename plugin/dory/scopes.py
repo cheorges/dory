@@ -17,7 +17,7 @@ KNOWLEDGE = "knowledge.md"
 NOTES_FOLDER = "notes"  # in the vault for everything without a project, in a project for its notes
 LIBRARY = "library"
 LIBRARY_KEY = "library"  # the property of a project note or topic file that links entries
-OLD_PRIVATE = "private"  # the folder before 0.6.0; the user renames it in Obsidian
+OLD_PRIVATE = "private"  # the folder before 0.7.0; the user renames it in Obsidian
 LIST_TYPES = frozenset({"list", "register"})
 
 

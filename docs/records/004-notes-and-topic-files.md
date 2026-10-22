@@ -2,7 +2,7 @@
 
 ## Status
 
-Done (2026-10-21): released as 0.5.0. `private/` became `library/` in 0.6.0, and decision 7 and the section on `private/` are replaced by [Record 006](006-library.md).
+Done (2026-10-21): released as 0.5.0. `private/` became `library/` in 0.7.0, and decision 7 and the section on `private/` are replaced by [Record 006](006-library.md).
 
 ---
 

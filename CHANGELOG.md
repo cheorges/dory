@@ -2,13 +2,7 @@
 
 All notable changes to dory are listed here. Versions follow [Semantic Versioning](https://semver.org/); the version lives in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py`, and a test keeps them in sync.
 
-## 0.6.0 (2026-10-22)
-
-The session start may take a share of the context window you choose, instead of a fixed 1,500 tokens, and topics in `notes/` load in full when there is room.
-
-- **Three levels.** `context = "lean"` (5 % of the window, the default), `"balanced"` (10 %) or `"rich"` (15 %). The window comes from `context_window`, 200,000 tokens by default: Claude Code does not tell a hook which model a session uses. Set it to the smallest window you work with, e.g. `context_window = 1000000`. `recall_budget_tokens` still sets an exact limit and then wins. With the defaults the start may take 10,000 tokens, more than six times as much as before.
-- **Topics in full.** After the project's files, each topic file in `notes/` loads whole, most recently updated first, as long as it fits; the rest, and every list and register, stays a title line.
-- **Summaries are capped.** A project still gets a summary once its files exceed 80 % of the limit, but a summary is at most 10,000 tokens. A change of level or window makes existing summaries stale; the worker rebuilds them.
+## 0.7.0 (2026-10-22)
 
 `private/` becomes `library/`, and `/dory:library` files knowledge there in a dialog ([Record 006](docs/records/006-library.md)).
 
@@ -16,6 +10,15 @@ The session start may take a share of the context window you choose, instead of 
 - **Links load entries.** A project note links a library entry in its text or in its `library` property, and the entry loads in that project's sessions. A topic file in `notes/` links one in its `library` property only, and the entry loads in every session, right after the topic. The worker gets copies of the entries its session could load and does not write them again; the checks after a run put back a `library` property the run changed.
 - **`/dory:note` cannot write into the library.** A hook of the skill blocks Write and Edit under `library/` for the rest of the session. The scope `general` is now `notes` (`dory add-note --scope notes`), and "remember in general" is gone.
 - **Rename `private/` yourself.** dory does not move the folder, since links to it would break. Rename it to `library` in Obsidian, which updates the links; until then the session start says that `private/` still holds files.
+- **A short README.** It shows the idea and the commands; the details are in [docs/guide.md](docs/guide.md).
+
+## 0.6.0 (2026-10-22)
+
+The session start may take a share of the context window you choose, instead of a fixed 1,500 tokens, and topics in `notes/` load in full when there is room.
+
+- **Three levels.** `context = "lean"` (5 % of the window, the default), `"balanced"` (10 %) or `"rich"` (15 %). The window comes from `context_window`, 200,000 tokens by default: Claude Code does not tell a hook which model a session uses. Set it to the smallest window you work with, e.g. `context_window = 1000000`. `recall_budget_tokens` still sets an exact limit and then wins. With the defaults the start may take 10,000 tokens, more than six times as much as before.
+- **Topics in full.** After the project's files, each topic file in `notes/` loads whole, most recently updated first, as long as it fits; the rest, and every list and register, stays a title line.
+- **Summaries are capped.** A project still gets a summary once its files exceed 80 % of the limit, but a summary is at most 10,000 tokens. A change of level or window makes existing summaries stale; the worker rebuilds them.
 
 ## 0.5.0 (2026-10-21)
 

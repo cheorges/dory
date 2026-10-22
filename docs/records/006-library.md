@@ -2,7 +2,7 @@
 
 ## Status
 
-Done (2026-10-22): released as part of 0.6.0, before its release was merged.
+Done (2026-10-22): released as 0.7.0.
 
 ---
 
@@ -210,16 +210,16 @@ session start in dory  ──►  projects/dory/notes/*.md + notes/*.md
 **Priority:** High
 **Status:** Done (2026-10-22)
 
-### Story S6: Part of release 0.6.0
+### Story S6: Release 0.7.0
 
-**Acceptance Criteria:** version 0.6.0 stays in the three files; CHANGELOG, README (folders, `/dory:library`, the property, migration line) and CLAUDE.md updated; Record 004 points to this record for `private/`; nothing tagged or pushed beyond the branch.
+**Acceptance Criteria:** version 0.7.0 in the three files; CHANGELOG, README (folders, `/dory:library`, the property, migration line) and CLAUDE.md updated; Record 004 points to this record for `private/`; nothing tagged or pushed beyond the branch.
 
 **Priority:** Medium
 **Status:** Done (2026-10-22)
 
 ## Implementation Notes
 
-- **One release.** 0.6.0 was tagged but not merged, so the marketplace (which installs from `main`) had not shipped it. The library went into 0.6.0 in one commit, and the tag moves to the new release commit.
+- **Its own release.** The library was built on the branch of 0.6.0 to go into that release, but pull request #4 was merged before the branch was pushed. The marketplace installs from `main`, so 0.6.0 was out without the library, and the library became 0.7.0, committed directly on `main`.
 - **Where the topic files' link lives.** `dory link` writes the property as a block list (`frontmatter.add_list_item`); an inline list or a scalar under `library` becomes a block list with its values kept. While an entry waits in the queue, `baseline.record_dory_write` gives the baseline's copy of the topic file the new property, so its checks do not take the link back.
 - **A run that adds a property.** A topic file the run created loses a `library` property, and one it changed gets the old one back; both are logged as `restored`.
 - **The guard fails open.** A broken `dory guard` lets the call through and logs to `hook-errors.log`: it stays active for the rest of the session, and a guard that blocks every write would be worse than one that misses.

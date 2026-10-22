@@ -14,13 +14,13 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Test 0.6.0 in daily use | Open | After pull request #4 is merged: install, set `context_window = 1000000` if the sessions run with 1M windows, delete the empty `general/` and `private/` (with its empty `knowledge.md`) that 0.4.0 left in the vault, and `/reload-plugins` in every open window. The vault holds 32 session notes and a `knowledge.md` for dory and ai-assistant-hub without entries. Watch: topic files in `notes/` (title, one subject each, no duplicates), the user's notes untouched, `/dory:library` (proposals, links, entries loading where linked), `dory status` for unexpected changes, and how much the session start loads |
+| Test 0.7.0 in daily use | Open | Install 0.7.0, set `context_window = 1000000` if the sessions run with 1M windows, delete the empty `general/` and `private/` (with its empty `knowledge.md`) that 0.4.0 left in the vault, and `/reload-plugins` in every open window. The vault holds 32 session notes and a `knowledge.md` for dory and ai-assistant-hub without entries. Watch: topic files in `notes/` (title, one subject each, no duplicates), the user's notes untouched, `/dory:library` (proposals, links, entries loading where linked), `dory status` for unexpected changes, and how much the session start loads |
 
 **Legend:** Open | Designed | In Progress | Done
 
-Records 001 to 006 are released; versions are in [CHANGELOG.md](CHANGELOG.md), tagged up to `v0.6.0`. Record 006 (the library) went into 0.6.0 after the first tag, so `v0.6.0` moves to the commit that adds it before pull request #4 is merged.
+Records 001 to 006 are released; versions are in [CHANGELOG.md](CHANGELOG.md). A release tag sits on the commit on `main` that releases it (the merge commit of its pull request, or the release commit itself when it went directly on `main`, as 0.7.0 did).
 
-**Next Step:** Merge pull request #4 with a merge commit (the tag `v0.6.0` sits on its release commit), then the steps of "Test 0.6.0 in daily use". Releasing: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request with a merge commit, tag `vX.Y.Z` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
+**Next Step:** Tag `v0.7.0` and move `v0.6.0` to the merge commit of pull request #4 (`abc6e7f`), then the steps of "Test 0.7.0 in daily use". Releasing: bump the version in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request with a merge commit, tag `vX.Y.Z` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
 
 ### Future
 

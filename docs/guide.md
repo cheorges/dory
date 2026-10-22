@@ -161,7 +161,7 @@ ls ~/.local/state/dory-brain/snapshots/
 cp ~/.local/state/dory-brain/snapshots/<timestamp>/projects/x/knowledge.md ~/Obsidian/dory-brain/projects/x/
 ```
 
-## Coming from 0.5.0
+## Coming from 0.6.0 or earlier
 
 `private/` is now `library/`. dory does not move the folder, since links to `private/...` would break: rename it to `library` in Obsidian, which updates the links. Until then the session start says that `private/` still holds files. `dory add-note --scope general` is now `--scope notes`.
 
