@@ -2,7 +2,7 @@
 
 ## Status
 
-Done (2026-10-22): released as 0.8.0; the language list in 0.8.1 and 0.9.0.
+Done (2026-10-22): released as 0.8.0; the language list in 0.9.0.
 
 ---
 
@@ -45,11 +45,11 @@ Only hooks get the variables. `/dory:note` and `/dory:save` run `dory` through B
 
 ### Decision 4: Order and defaults
 
-`/config` wins over config.toml, config.toml over dory's defaults; `DORY_VAULT` and `DORY_STATE_DIR` override all. A choice list must have a default (the validator refuses one without), so `model`, `context` and, since 0.8.1, `language` show `sonnet`, `lean` and `English`; the probe shows such a default is display only, so a value in config.toml still applies until the user sets the option. `vault` and `context_window` declare no default: `/config` would show `~/Obsidian/dory-brain` to a user whose config.toml names another vault.
+`/config` wins over config.toml, config.toml over dory's defaults; `DORY_VAULT` and `DORY_STATE_DIR` override all. A choice list must have a default (the validator refuses one without), so `model`, `context` and, since 0.9.0, `language` show `sonnet`, `lean` and `English`; the probe shows such a default is display only, so a value in config.toml still applies until the user sets the option. `vault` and `context_window` declare no default: `/config` would show `~/Obsidian/dory-brain` to a user whose config.toml names another vault.
 
-### Decision 5: The note language as a list (0.8.1)
+### Decision 5: The note language as a list (0.9.0)
 
-The user asked for a choice list instead of free text, with English as default. The list holds 16 common languages. A language not on it goes into config.toml, which at first applied only while the option was not set; once set in `/config`, a value cannot be emptied again (`claude plugin configure` reports no change for an empty value). Since 0.9.0 the list ends with `Other (config.toml)`: dory treats it as not set, so config.toml decides (`config.OTHER_LANGUAGE`).
+The user asked for a choice list instead of free text, with English as default. The list holds 16 common languages. A language not on it goes into config.toml; since a value once set in `/config` cannot be emptied again (`claude plugin configure` reports no change for an empty value), the list ends with `Other (config.toml)`: dory treats it as not set, so config.toml decides (`config.OTHER_LANGUAGE`).
 
 ## Solution
 

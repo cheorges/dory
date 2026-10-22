@@ -784,4 +784,4 @@ All three verdicts `correct`; the security auditor found every way into a work p
 
 **Checked.** 293 unit tests and ruff; `claude plugin validate plugin`; end to end in an isolated `CLAUDE_CONFIG_DIR`: the plugin installed from the repo, five values set with `claude plugin configure`, read back by `load_config`; an invalid model refused by Claude Code.
 
-**0.8.1 and 0.9.0 (2026-10-22).** The note language became a choice list of 16 languages, English by default (0.8.1), and the list ends with `Other (config.toml)`, which `config.plugin_options` treats as not set, so `language` in config.toml decides (0.9.0). Checked: 294 unit tests; the two new config tests fail on the code before.
+**0.9.0 (2026-10-22).** The note language became a choice list of 16 languages, English by default, and the list ends with `Other (config.toml)`, which `config.plugin_options` treats as not set, so `language` in config.toml decides. Checked: 294 unit tests; the two new config tests fail on the code before.

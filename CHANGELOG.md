@@ -4,12 +4,9 @@ All notable changes to dory are listed here. Versions follow [Semantic Versionin
 
 ## 0.9.0 (2026-10-22)
 
-- **Any note language.** The language list in `/config` ends with `Other (config.toml)`. Choose it, and dory takes `language` from `~/.config/dory-brain/config.toml`, e.g. `language = "Catalan"`. Before, a language not on the list applied only while the option was not set in `/config`, and a value once set could not be taken back.
-- **Versions.** While dory is at 0.x, every release raises the minor version; there are no more patch releases.
-
-## 0.8.1 (2026-10-22)
-
-- **The note language is a choice list** in `/config`, English by default, with 16 common languages. Another language still goes into `config.toml` (`language = "Catalan"`) and applies while the option is not set in `/config`.
+- **The note language is a choice list** in `/config`, English by default, with 16 common languages.
+- **Any note language.** The list ends with `Other (config.toml)`. Choose it, and dory takes `language` from `~/.config/dory-brain/config.toml`, e.g. `language = "Catalan"`.
+- **Versions.** While dory is at 0.x, every release raises the minor version; there are no patch releases.
 
 ## 0.8.0 (2026-10-22)
 
