@@ -675,3 +675,81 @@ All three verdicts `correct`; the security auditor found every way into a work p
 - P3: the CLAUDE.md did not say how to mark a project private (S7 criterion 3). Added to Architecture.
 
 **Checked.** 206 unit tests green, ruff clean, version test green.
+
+## Record 004, Story S1: file names and post-run checks for the new layout (2026-10-21)
+
+**User story.** As a user whose notes and private files sit next to files a model edits, I want every worker run checked against the new layout, so that a touched note or private file shows up in `dory status` and every removed topic entry is reported. Foundation: nothing the user sees changes yet; S2's live checks read these results, S5 writes notes through the name function.
+
+**What it solves.** The post-run checks now know the layout of Record 004: the project's `knowledge.md` and every topic file in `notes/` are compared entry by entry, lists and registers are not; the user's project notes and every `.md` under `private/` are watched and reported when a run creates, changes or deletes one, and nothing of the user's is restored any more (decision 11). dory itself writes nothing under `private/` except the empty folder. A title becomes a file name by one function. What the worker writes does not change yet: its task and rules still name `general/` and `private/` until S2, so the branch is not releasable.
+
+**Implementation.**
+- `names.py` (new): `file_stem` (NFC; whitespace and `[ ] # ^ | \ / :` become one space; leading dots, trailing dots and spaces trimmed; cut at 80 characters and 200 bytes; an empty result raises `TitleError`), `name_key` (NFC, casefolded) and `is_clean`.
+- `baseline.py`: `create_skeletons` makes the project's `knowledge.md` and an empty `private/`, no files in `general/` or `private/`. `capture(vault, target, project, topics_allowed=...)` copies the project's `knowledge.md` and the top-level `.md` files of `notes/`, hashes every other `.md` under `projects/` and `private/`, and writes `layout.json` (the knowledge file and whether topics may be written). `check(vault, target)` reads the layout from the baseline, restores the knowledge file's keys and a changed list or register type, gives a new file in `notes/` `type: topic`, reports names that break the rules, watched files and a private project's topic writes as `unexpected`, and diffs the knowledge file and the topic files. `record_dory_write` replaces `notes_copies`: a file dory writes for the user while entries wait gets its new hash in their baselines.
+- `ingest.py` and `note.py` call the new interface; `scopes.py` names the folders (`notes`, `private`) and the list types.
+
+**Decisions and reasoning.**
+- A baseline without `layout.json` comes from 0.4.0 and is discarded instead of kept: its checks would restore files under `private/` (Record 004 review). The layout lives in the baseline, so a retry checks with what the killed attempt captured, as the 0.4.0 file list did.
+- A forbidden character leaves a space instead of nothing: "a/b" becomes "a b", not "ab". The record says "removed"; the space is the readable form of that.
+- The hash covers only `.md` files under `private/`, so attachments are not read on every attempt.
+- The untyped topic and the unreadable file (review) are handled where the record already put them: a list type the run gives an untyped file is taken back, an unreadable file is reported as `failed` by the checks.
+
+**Why readable and maintainable.** `names.py` holds the naming rules in one place for the checks now and for `/dory:note` and the worker's rules later. `baseline.py` stays the one module that knows the run's guard; `check` reads like the record's list of post-run checks, one guarded step each. Tests read as the acceptance criteria (`test_private_files_a_run_touched_are_reported_and_dory_writes_nothing_there`).
+
+**Review findings.** First pass (architect and code reviewer, both `correct`): P2, found by both, a run that gave an untyped topic file the type `list` kept the type and its removed entries went unreported (fixed: the list type is taken back and the baseline decides what is a topic; test fails on the old code); P3 one unreadable file in `notes/` made `capture` raise and every entry fail (fixed: the copy is guarded, the checks report the file as `failed`; test fails on the old code). Second pass (code reviewer, `correct`): P3 a note that could not be copied when the baseline was taken counted as created by the run, so the checks could write `type: topic` into the user's file and report all its entries as added (fixed: `layout.json` lists the notes present at capture, and an uncopied one is reported once as `failed` and otherwise left alone; test fails on the old code). Not reviewed a third time: the fix is local and covered.
+
+**Checked.** 231 unit tests green, ruff clean. No live run: the story is deterministic.
+
+## Record 004, Story S2: the worker keeps topic files in `notes/` (2026-10-21)
+
+**User story.** As a user who works in several projects, I want the worker to write what applies beyond a project into one file per topic in `notes/`, and to leave my notes and my private folder alone, so that a pitfall found in one project is there for every other, filed under its subject. The story with the highest risk: its first criterion decided whether the design holds.
+
+**What it solves.** The worker no longer knows `general/` or `private/`: a tool pitfall from a project session lands in `notes/<topic>.md`, extended when the topic exists; private content becomes no entry; the user's project notes are read and never changed. The run is denied reading `private/` and writing it or the project notes.
+
+**Implementation.**
+- `ingest.py`: `WORKER_SETTINGS` deny `Read`, `Edit` and `Write` on `private/**` and `Edit` and `Write` on `projects/*/notes/**`; `task.md` names the project's `knowledge.md`, every file in `notes/` with its type, the user's notes to read, that `private/` is closed, and for a private project that no topic file may be written (`TaskFiles`, `_task_files`, `_task_file_lines`).
+- `scopes.py`: the layout helpers `knowledge_file`, `notes_folder_files`, `project_notes`, `file_type`; the baseline uses them instead of its own copies.
+- Rules skill: `private/` is the user's; the user's notes are the project's note files and are linked in path form under `## Open`; "Where an insight goes" sends tool and service knowledge to a topic file and private content nowhere; a new section on topic files (one subject per file, the title names the subject, find the matching file first, naming rules, form of `knowledge.md`); lists live in `notes/` and are named by the same rules. Ingest skill: reads the project's notes, never `private/`, Greps the topic files.
+
+**Decisions and reasoning.**
+- The probe of the deny rules was built first, as the record asked. It showed in eight runs that `Read`, `Grep` and `Glob` on `private/` are denied, a path in other case (`PRIVATE/FAMILY/DEEP.md`) too, that a Grep over the whole vault finds nothing in `private/`, and that writing a project note is denied, in other case too. One early run failed on the positive control (Edit without a prior Read), not on a leak; the test now puts the security assertions first, asserts that every forbidden tool was tried, and reads before it edits.
+- The test of the deny probe stays in `tests/test_live_bundle.py`; the 0.4.0 probe of `notes.md` is replaced.
+
+**Why readable and maintainable.** The task text is built from data (`TaskFiles`) in one function per block; the layout lives in `scopes.py` once and the baseline, the task, the session start, the note command and the search all read it from there.
+
+**Live checks** (Haiku). The whole rule suite once, 26 of 26 in 7 minutes; the new and changed checks three of three (knowledge lands in its scope, an insight extends the existing topic, a private note never reaches a topic file, a private project writes no topic file, a user note is never changed or repeated, a contradicted note is linked as open). The deny probe three of three after its fix, and eight runs without a leak in all.
+
+## Record 004, Stories S3 and S4: the session start and summaries per project (2026-10-21)
+
+**User story.** S3: as a user starting a session, I want my project notes and the project's knowledge in full, the private notes I linked, and the titles of everything in `notes/`, so that Claude follows my notes from the first answer and knows which topics exist without carrying them. S4: as a user with a lot in one project, I want the summary to cover exactly what the start loads in full, so that it stays within the limit and no private content outlives its link.
+
+**Built together.** The summary's context is the session start's context (`summary.context_for` builds both from `context.loaded_files`), so changing the start changed the summaries' contexts in the same step; splitting them would have left the suite red between the two. Reviewed together with S2, S5 and S6.
+
+**Implementation.**
+- `links.py` (new): the links of a project note into `private/`: wikilinks and embeds with alias, heading and `.md`, Markdown links with an encoded or bracketed target, nothing inside code; a path from the vault root or a bare name, matched without case; every target resolved to its real path and kept only inside `private/` (a `private/` that is itself a link works).
+- `context.py`: `loaded_files` gives the load order: the project's notes by name, each followed by the private notes it links first, then `knowledge.md`; outside a known project nothing.
+- `recall.py`: the notes section lists every file in `notes/` with `(list)` or `(register)`, most recently `updated` first (file time without it). Room: front first, room kept for the titles' heading and closing line, then the paths of cut or summarized files, then the files, then the titles; a closing line counts what did not fit. The lists section by domain is gone.
+- `summary.py`: `Context` knows whether the project is private and which private notes it loads (`linked`); a `Summary` carries `linked` in its header and `fits` a context only for the same domain and the same linked notes; `_general` and `_outside` name no context, so their marks go without a run. `summarize.py` uses `fits` and saves `linked`; its prompt names the project's notes and `private/` as the user's notes.
+
+**Decisions and reasoning.**
+- The titles fill what the files leave: a project's own notes and knowledge matter more in its sessions than the list of topics. Outside a project the titles get all the room.
+- The left-out line points to the folder `notes/`, not to `/dory:search` (design review).
+
+**Checked.** Unit tests of the start, the links and the summaries; the live summary check once (3 of 3 tests in one run).
+
+**Review findings (S2 to S6, one pass, architect and code reviewer, both `correct`).** P3, found by both: a wikilink alias escaped for a table (`[[private/X\|alias]]`) did not resolve (fixed: the trailing backslash is dropped). P3: an indented or unclosed code fence did not hide the links in it, so an example link could load a private note (fixed: code is stripped line by line with the same fence toggle as `context.py`, an unclosed fence runs to the end). Each fix has a test that fails on the old code. Not reviewed a second time: both fixes are local to `links.py` and covered.
+
+## Record 004, Story S5: `/dory:note` writes note files (2026-10-21)
+
+**User story.** As a user who wants something remembered right now, I want `/dory:note` to write a note with a meaningful title, in the project or in the matching topic in `notes/`, so that I find it by its title in Obsidian and later sessions load it.
+
+**Implementation.** `note.py`: `prepare_note` names the scopes `project` (`projects/<project>/notes/`) and `general` (`notes/`), the titles of the project's notes and of `notes/` with their types; `add_note(config, cwd, scope, title, text)` creates `projects/<project>/notes/<name>.md` (`type: note`, `created`) or a topic file in `notes/` (`type: topic`, `updated`), never overwrites a name in any case (checked by name key under the notes lock, then created with open mode `x`), records the project note in queued baselines, marks the project's summary and starts the worker; the scope `private` is gone. `cli.py`: `add-note --scope --title`. Note skill: list items as before; private content is not written and the reply points to `private/`; a project note gets a title and content from the request and the session; a general note extends the matching topic with Edit after the snapshot or creates one through `add-note`; no link into `private/` unless asked.
+
+**Live checks** (Haiku, three of three, the two search checks included): a note after a session that solved the Loki port is one new file whose title names Loki and whose content says 3200, and nothing else changed (the session is played in two turns with `--continue`); "remember in general: uv instead of pip" corrects the one pip entry of the topic `Python` and creates no file; a note after talking about a private note is written without a link into `private/`; a health note writes nothing and the reply points to `private/`; milk goes onto the list in a project and outside one.
+
+## Record 004, Story S6: search covers the whole vault (2026-10-21)
+
+**Implementation.** `search.py`: entries of every project's `knowledge.md` and of every topic file in `notes/`; whole documents for the project notes, every `.md` under `private/` (subfolders too), lists, registers and session notes, titled by `summary` or file name; no domain filter. Files of 0.4.0 (`general/`, a project's `notes.md`) and anything in a subfolder of `notes/` or not Markdown are not searched.
+
+## Record 004, Story S7: release 0.5.0 prepared (2026-10-21)
+
+**Implementation.** Version 0.5.0 in the three files (the version test is green); CHANGELOG entry with what changes and what happens to the files 0.4.0 wrote; README (what happens automatically, the commands, `private/`, the session start, the vault); the project CLAUDE.md (About, Architecture, status, Recent Decisions, Next Step). Nothing tagged or pushed.
