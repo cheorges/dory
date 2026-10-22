@@ -23,7 +23,7 @@ The notes are plain Markdown, so you can browse them in Obsidian. They are writt
 |---|---|
 | `/dory:save` | Queues the running session right away without ending it. When it ends later, only the rest is processed, as part 2. |
 | `/dory:note "how we solved the Loki port"` | Writes a note into the project's `notes/`, as a file named by its title; Claude writes title and content from what you ask and from the session. "remember in general: ..." goes into the matching topic in `notes/`, "buy milk" onto the shopping list. Something private is not written: put it into `private/` yourself. The worker reads your notes and never changes them. |
-| `/dory:search loki deploy` | Searches the whole vault, `private/` included, and shows each matching entry with its section and file, and each matching note, list or session note. Claude also uses it on its own when you ask about earlier knowledge. |
+| `/dory:search loki deploy` | Searches the whole vault, `private/` included, and shows each matching entry with its section and file, and each matching note, list or session note. Claude also uses it on its own when you ask about earlier knowledge, and then sees private hits too. |
 
 ### In the terminal
 
@@ -156,7 +156,30 @@ While the whole text fits `recall_budget_tokens`, everything loads. When the pro
     2026-10-09-1432-ai-assistant-hub-abc12345-1.md
 ```
 
-All files are Obsidian Flavored Markdown with properties in the frontmatter and `[[wikilinks]]`. A file name is its title. Other files in `projects/` (single knowledge notes and overviews from before 0.4.0, a project's `notes.md` from 0.4.0) and the folder `general/` from 0.4.0 are no longer loaded, searched or changed; move what you want to keep and delete them. Keep the overview of a project you had marked `domain: private` until its `knowledge.md` exists, or set the domain there yourself.
+All files are Obsidian Flavored Markdown with properties in the frontmatter and `[[wikilinks]]`. A file name is its title: a short phrase that names the subject, without `[ ] # ^ | \ / :`.
+
+A note of yours in a project is free Markdown; the worker reads it and never changes it:
+
+```markdown
+---
+type: note
+created: 2026-10-21
+---
+Grafana takes port 3100 on the customer VMs, so Loki runs on 3200 there. Every dashboard points to loki:3200.
+```
+
+A topic file in `notes/` has the form of `knowledge.md`: entries with a bold lead under `## Pitfalls`, `## Decisions`, `## Facts`, `## How-to` and `## Preferences`. You can create or edit one yourself in Obsidian; a file there without `type` counts as a topic.
+
+```markdown
+---
+type: topic
+updated: 2026-10-21
+---
+## Pitfalls
+- **Overwriting a Notion page deletes the databases embedded in it.** Append blocks instead of replacing the page.
+```
+
+To bring a private note into a project's sessions, link it from one of the project's notes, for example `See [[private/Employment contract]]`. Other files in `projects/` (single knowledge notes and overviews from before 0.4.0, a project's `notes.md` from 0.4.0) and the folder `general/` from 0.4.0 are no longer loaded, searched or changed; move what you want to keep and delete them. Keep the overview of a project you had marked `domain: private` until its `knowledge.md` exists, or set the domain there yourself.
 
 ### Undoing a change
 
@@ -164,7 +187,7 @@ The vault has no git. Before every write, dory takes a snapshot (an APFS clone, 
 
 ```bash
 ls ~/.local/state/dory-brain/snapshots/
-cp ~/.local/state/dory-brain/snapshots/<timestamp>/projects/x/knowledge.md ~/Documents/dory/projects/x/
+cp ~/.local/state/dory-brain/snapshots/<timestamp>/projects/x/knowledge.md ~/Obsidian/dory-brain/projects/x/
 ```
 
 ## Cost
@@ -184,7 +207,7 @@ The live checks use Haiku (`DORY_LIVE_MODEL=sonnet` for another model) and throw
 
 To run the plugin from a clone, add the clone as the marketplace instead: `claude plugin marketplace add ~/Development/dory`. Claude Code then loads the plugin in place, so changes take effect at the next session start or after `/reload-plugins`.
 
-Design and decisions: [Record 001](docs/records/001-second-brain.md), [Record 002](docs/records/002-note-quality.md), [Record 003](docs/records/003-project-knowledge-file.md). What was built and checked per story: [implementation log](docs/implementation-log.md).
+Design and decisions: [Record 001](docs/records/001-second-brain.md), [Record 002](docs/records/002-note-quality.md), [Record 003](docs/records/003-project-knowledge-file.md), [Record 004](docs/records/004-notes-and-topic-files.md). What was built and checked per story: [implementation log](docs/implementation-log.md).
 
 ## License
 
