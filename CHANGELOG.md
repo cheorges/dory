@@ -83,9 +83,6 @@ The session start carries knowledge only, and the vault keeps fewer, current not
 
 - README: the configuration shows the three settings a user chooses (`vault`, `language`, `model`); the six tuning settings are documented under "Advanced settings" with what each one guards against. Behaviour and defaults are unchanged.
 - README: updating an installed plugin takes `claude plugin update dory@brain`; `claude plugin install` does not pick up a new version.
-
-## 0.1.1 (2026-10-12)
-
 - The marketplace is now called `brain`: install with `claude plugin install dory@brain`. If you installed 0.1.0, remove the old marketplace first: `claude plugin uninstall dory@dory-brain && claude plugin marketplace remove dory-brain`.
 
 ## 0.1.0 (2026-10-12)
