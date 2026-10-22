@@ -30,7 +30,11 @@ def loaded_files(vault: Path, project: Project | None) -> list[Path]:
             text = (vault / note).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue  # the session start reports nothing it cannot read
-        files += [linked for linked in links.library_entries(vault, text) if linked not in files]
+        linked = [
+            *links.library_entries(vault, text),
+            *links.linked_by_property(vault, vault / note),
+        ]
+        files += [entry for entry in dict.fromkeys(linked) if entry not in files]
     return [*files, knowledge]
 
 

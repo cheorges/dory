@@ -88,19 +88,38 @@ def _scalar(raw: str) -> str:
     return raw
 
 
+Block = tuple[str, list[str]]  # a key and its lines, list items and continuations included
+
+
+def split_blocks(text: str) -> tuple[list[Block], str]:
+    """The frontmatter as blocks per key, and the rest; no blocks without a complete frontmatter."""
+    lines = text.splitlines(keepends=True)
+    end = closing_line(lines)
+    if end is None:
+        return [], text
+    head = [line.rstrip("\n") for line in lines[1:end]]
+    blocks: list[Block] = []
+    for line in head:
+        if (line[:1] not in (" ", "-", "") and ":" in line) or not blocks:
+            blocks.append((line.partition(":")[0].strip(), [line]))
+        else:
+            blocks[-1][1].append(line)
+    return blocks, "".join(lines[end + 1 :])
+
+
+def join_blocks(blocks: list[Block], rest: str) -> str:
+    """The text of `blocks` as frontmatter in front of `rest`; no frontmatter without blocks."""
+    lines = [line for _, block in blocks for line in block]
+    return ("\n".join(["---", *lines, "---", ""]) if lines else "") + rest
+
+
 def add_list_item(text: str, key: str, item: str) -> str:
     """`text` with `item` appended to the list property `key`, written as a block list.
 
     An inline list or a scalar under `key` becomes a block list with its values kept; a file
     without frontmatter gets one. The other keys and the body stay as they are.
     """
-    lines = text.splitlines(keepends=True)
-    end = closing_line(lines)
-    if end is None:
-        head, rest = [], text
-    else:
-        head, rest = [line.rstrip("\n") for line in lines[1:end]], "".join(lines[end + 1 :])
-    blocks = _key_blocks(head)
+    blocks, rest = split_blocks(text)
     found = next((index for index, (name, _) in enumerate(blocks) if name == key), None)
     values: list[str] = []
     if found is not None:
@@ -114,8 +133,7 @@ def add_list_item(text: str, key: str, item: str) -> str:
         blocks.append((key, block))
     else:
         blocks[found] = (key, block)
-    head = [line for _, block_lines in blocks for line in block_lines]
-    return "\n".join(["---", *head, "---", ""]) + rest
+    return join_blocks(blocks, rest)
 
 
 def closing_line(lines: list[str]) -> int | None:
@@ -123,14 +141,3 @@ def closing_line(lines: list[str]) -> int | None:
     if not lines or lines[0].strip() != "---":
         return None
     return next((index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
-
-
-def _key_blocks(head: list[str]) -> list[tuple[str, list[str]]]:
-    """Frontmatter lines grouped by key; indented and list lines belong to the key above."""
-    blocks: list[tuple[str, list[str]]] = []
-    for line in head:
-        if (line[:1] not in (" ", "-", "") and ":" in line) or not blocks:
-            blocks.append((line.partition(":")[0].strip(), [line]))
-        else:
-            blocks[-1][1].append(line)
-    return blocks

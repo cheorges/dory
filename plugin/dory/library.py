@@ -14,12 +14,21 @@ from pathlib import Path
 
 from dory import baseline, links, names, scopes
 from dory.config import Config
-from dory.frontmatter import add_list_item, closing_line, read_frontmatter, strip_frontmatter
+from dory.frontmatter import (
+    Block,
+    add_list_item,
+    closing_line,
+    join_blocks,
+    read_frontmatter,
+    split_blocks,
+    strip_frontmatter,
+)
 from dory.project import detect_project
 from dory.state import StateDir
 from dory.vault import snapshot
 
 MAX_FOLDER_DEPTH = 2
+_ENTRY_KEYS = ("type", "created", "updated")
 GUARD_MESSAGE = (
     "{path} is in the user's library; /dory:note never writes there. "
     "To file knowledge in the library, the user runs /dory:library."
@@ -71,6 +80,8 @@ def library_write(
     if not content:
         raise LibraryError("empty entry: nothing to write")
     vault = config.vault
+    if bad := sorted(set(title + folder) & names.NOT_IN_QUOTES):
+        raise LibraryError(f"a folder or title holds no {' '.join(bad)}")
     try:
         stem = names.file_stem(title)
     except names.TitleError as error:
@@ -83,16 +94,27 @@ def library_write(
         existing = _existing(vault, relative)
         relative = existing or relative
         path = vault / relative
-        created = day
-        if existing:
-            created = str(read_frontmatter(path).get("created") or day)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            f"---\ntype: library\ncreated: {created}\nupdated: {day}\n---\n{content}\n",
-            encoding="utf-8",
-        )
+        path.write_text(_entry_text(path if existing else None, content, day), encoding="utf-8")
         baseline.record_dory_write(state, vault, relative)
     return relative, existing is None
+
+
+def _entry_text(existing: Path | None, content: str, day: str) -> str:
+    """The entry with `type`, `created` and `updated` first; an existing entry keeps its other
+    properties (tags, aliases) and its `created`."""
+    own: list[Block] = []
+    created = day
+    if existing is not None:
+        blocks, _ = split_blocks(existing.read_text(encoding="utf-8"))
+        created = str(read_frontmatter(existing).get("created") or day)
+        own = [block for block in blocks if block[0] not in _ENTRY_KEYS]
+    fixed: list[Block] = [
+        ("type", ["type: library"]),
+        ("created", [f"created: {created}"]),
+        ("updated", [f"updated: {day}"]),
+    ]
+    return join_blocks([*fixed, *own], f"{content}\n")
 
 
 def link(config: Config, entry: str, files: list[str]) -> list[tuple[Path, bool]]:

@@ -11,6 +11,9 @@ import unicodedata
 MAX_CHARACTERS = 80
 MAX_BYTES = 200  # of UTF-8; file systems allow 255
 _UNLINKABLE = frozenset("[]#^|\\/:")
+# The skills pass titles and folders in double quotes on a command line, where these characters
+# end the quotes or expand; a name that holds one did not arrive as the model wrote it.
+NOT_IN_QUOTES = frozenset('"$`')
 
 
 class TitleError(ValueError):

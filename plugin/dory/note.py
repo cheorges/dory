@@ -70,6 +70,8 @@ def add_note(
     content = text.strip()
     if not content:
         raise NoteError("empty note: nothing to write")
+    if bad := sorted(set(title) & names.NOT_IN_QUOTES):
+        raise NoteError(f"a title holds no {' '.join(bad)}")
     try:
         stem = names.file_stem(title)
     except names.TitleError as error:

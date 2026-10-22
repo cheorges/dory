@@ -225,3 +225,11 @@ session start in dory  ──►  projects/dory/notes/*.md + notes/*.md
 - **The guard fails open.** A broken `dory guard` lets the call through and logs to `hook-errors.log`: it stays active for the rest of the session, and a guard that blocks every write would be worse than one that misses.
 - **Dedupe at session start.** A library entry linked by the project's notes loads with them; one linked by several topics comes with the first of them in load order, and the topic block loads whole with its entries or not at all.
 - **Checked.** Unit tests in `tests/test_library.py`. Live (Haiku): the three `/dory:library` and note checks three times in a row; a `/dory:note` asked to Edit a library entry was blocked by the guard (the denial listed, the file unchanged); the worker's deny probe on `library/**` and the two rule checks that touch the folder.
+- **Review (2026-10-22, architect and code reviewer, both `correct`, 0.75).** Six findings, all fixed, each with a test that fails on the code before:
+  - P2: a library entry two topics link was attached to the first topic in order even when that topic did not fit, and then loaded nowhere. The entries now attach in `recall._fit`, to the first topic that loads; a summary stands for the files it was made of.
+  - P2: `dory link` on a topic file created while an entry waited (through `/dory:note`) was taken back by the checks. `record_dory_write` names such a file in the baseline's `linked.json`, and the checks keep its property.
+  - P2: a bare path in a project note's `library` property (`library: library/Python/uv`) counted as a link for `dory link` but did not load. Project notes now read the property as topic files do.
+  - P2: `library-write` dropped the properties of an entry it replaced (`tags`, `aliases`). It now keeps them and sets only `type`, `created` and `updated`.
+  - P3: the checks restored a `library` property outside `notes_lock`, so a `dory link` in the same milliseconds could be undone. The restores now run under the lock.
+  - P3: three copies of the frontmatter block splitter; now `frontmatter.split_blocks` and `join_blocks`.
+- **Names.** A title or folder with `"`, `$` or a backtick is refused by `library-write` and `add-note`: the skills pass them in double quotes on a command line.

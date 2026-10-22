@@ -31,7 +31,7 @@ from datetime import date
 from pathlib import Path
 
 from dory import entries, names
-from dory.frontmatter import parse_frontmatter, read_frontmatter
+from dory.frontmatter import join_blocks, parse_frontmatter, read_frontmatter, split_blocks
 from dory.project import Project
 from dory.repodocs import SWEEP_GRACE_SECONDS
 from dory.scopes import (
@@ -53,6 +53,7 @@ _COMPLETE = "COMPLETE"
 _CHECKED = "CHECKED"
 _HASHES = "hashes.json"
 _LAYOUT = "layout.json"  # missing in a baseline taken by an earlier version
+_LINKED = "linked.json"  # topic files `dory link` changed that the baseline has no copy of
 _UNREADABLE = "unreadable"
 
 
@@ -111,7 +112,8 @@ def record_dory_write(state: StateDir, vault: Path, relative: Path) -> None:
     """A file dory writes for the user while entries wait: their checks take it as given.
 
     A watched file gets its new hash. A file in `notes/` is a topic file whose `library` property
-    `dory link` changed: the baseline's copy takes the new property, so the checks keep it.
+    `dory link` changed: the baseline's copy takes the new property, so the checks keep it; a
+    topic created after the baseline was taken is named in `_LINKED`, so the checks keep it there.
     Call it under `notes_lock`, together with the write, so no check sees the file in between.
     """
     watched = relative.parts[0] in _WATCHED
@@ -127,6 +129,9 @@ def record_dory_write(state: StateDir, vault: Path, relative: Path) -> None:
                 (kept / _HASHES).write_text(json.dumps(hashes, ensure_ascii=False))
             elif (copy := kept / "files" / relative).is_file():
                 _copy_keys(vault / relative, copy, (LIBRARY_KEY,))
+            else:
+                linked = set(_linked(kept)) | {str(relative)}
+                (kept / _LINKED).write_text(json.dumps(sorted(linked), ensure_ascii=False))
 
 
 @contextmanager
@@ -156,22 +161,25 @@ def check(vault: Path, target: Path) -> list[dict]:
     captured = [Path(name) for name in layout["notes"]]
     uncopied = {relative for relative in captured if not (target / "files" / relative).exists()}
     kept_notes = notes_folder_files(target / "files")
-    new_notes = sorted(set(notes_folder_files(vault)) - set(captured))
     changes: list[dict] = []
     if knowledge:
         changes += _guarded(
             knowledge, lambda: _restore_keys(vault, target, knowledge, KNOWLEDGE_KEYS)
         )
-    for relative in kept_notes:
-        changes += _guarded(relative, lambda r=relative: _restore_type(vault, target, r))
-        changes += _guarded(relative, lambda r=relative: _restore_library(vault, target, r))
     changes += [
         {"change": "failed", "file": str(r), "lead": "not readable when the baseline was taken"}
         for r in sorted(uncopied)
     ]
-    for relative in new_notes:
-        changes += _guarded(relative, lambda r=relative: _new_note(vault, r))
+    # `dory add-note` and `dory link` write under this lock, so no restore undoes their write.
     with notes_lock(target.parent):
+        for relative in kept_notes:
+            changes += _guarded(relative, lambda r=relative: _restore_type(vault, target, r))
+            changes += _guarded(relative, lambda r=relative: _restore_library(vault, target, r))
+        new_notes = sorted(set(notes_folder_files(vault)) - set(captured))
+        linked = set(_linked(target))
+        for relative in new_notes:
+            keep = str(relative) in linked
+            changes += _guarded(relative, lambda r=relative, k=keep: _new_note(vault, r, k))
         changes += _guarded("watched files", lambda: _unexpected(vault, target, knowledge))
     if not layout["topics"]:
         changes += _guarded(
@@ -207,6 +215,11 @@ def sweep(state: StateDir) -> None:
         with contextlib.suppress(FileNotFoundError):
             if kept.name not in queued and kept.stat().st_mtime < cutoff:
                 shutil.rmtree(kept, ignore_errors=True)
+
+
+def _linked(target: Path) -> list[str]:
+    path = target / _LINKED
+    return json.loads(path.read_text()) if path.is_file() else []
 
 
 def _open(target: Path) -> bool:
@@ -277,13 +290,11 @@ def _restore_keys(vault: Path, target: Path, relative: Path, keys: tuple[str, ..
     wrong = sorted(key for key in keys if expected.get(key) != actual.get(key))
     if not wrong:
         return []
-    head, rest = _split(text)
-    own = [block for block in _blocks(head or []) if block[0] not in keys]
-    protected = [block for block in _blocks(_split(kept)[0] or []) if block[0] in keys]
-    lines = [line for _, block in [*protected, *own] for line in block]
+    blocks, rest = split_blocks(text)
+    own = [block for block in blocks if block[0] not in keys]
+    protected = [block for block in split_blocks(kept)[0] if block[0] in keys]
     path.parent.mkdir(parents=True, exist_ok=True)
-    head_text = "\n".join(["---", *lines, "---", ""]) if lines else ""
-    path.write_text(head_text + rest)
+    path.write_text(join_blocks([*protected, *own], rest))
     return [
         {"change": "restored", "file": str(relative), "lead": f"frontmatter: {', '.join(wrong)}"}
     ]
@@ -312,32 +323,28 @@ def _restore_library(vault: Path, target: Path, relative: Path) -> list[dict]:
 
 def _copy_keys(source: Path, copy: Path, keys: tuple[str, ...]) -> None:
     """Give `copy` the frontmatter blocks of `keys` that `source` has, in place of its own."""
-    head, rest = _split(copy.read_text())
-    taken = [block for block in _blocks(_split(source.read_text())[0] or []) if block[0] in keys]
-    own = [block for block in _blocks(head or []) if block[0] not in keys]
-    lines = [line for _, block in [*own, *taken] for line in block]
-    copy.write_text(("\n".join(["---", *lines, "---", ""]) if lines else "") + rest)
+    blocks, rest = split_blocks(copy.read_text())
+    taken = [block for block in split_blocks(source.read_text())[0] if block[0] in keys]
+    own = [block for block in blocks if block[0] not in keys]
+    copy.write_text(join_blocks([*own, *taken], rest))
 
 
-def _new_note(vault: Path, relative: Path) -> list[dict]:
+def _new_note(vault: Path, relative: Path, linked: bool = False) -> list[dict]:
     """A file the run created in `notes/`: a topic unless it says otherwise, named by the rules.
 
-    It links no library entry: only the user and `dory link` set that property.
+    It links no library entry: only the user and `dory link` set that property (`linked`).
     """
     changes = []
     path = vault / relative
-    if LIBRARY_KEY in read_frontmatter(path):
-        head, rest = _split(path.read_text())
-        lines = [line for key, block in _blocks(head or []) if key != LIBRARY_KEY for line in block]
-        path.write_text(("\n".join(["---", *lines, "---", ""]) if lines else "") + rest)
+    if not linked and LIBRARY_KEY in read_frontmatter(path):
+        blocks, rest = split_blocks(path.read_text())
+        path.write_text(join_blocks([block for block in blocks if block[0] != LIBRARY_KEY], rest))
         changes.append(
             {"change": "restored", "file": str(relative), "lead": f"frontmatter: {LIBRARY_KEY}"}
         )
     if "type" not in read_frontmatter(path):
-        text = path.read_text()
-        head, rest = _split(text)
-        lines = ["type: topic", *(head or [])]
-        path.write_text("\n".join(["---", *lines, "---", ""]) + rest)
+        blocks, rest = split_blocks(path.read_text())
+        path.write_text(join_blocks([("type", ["type: topic"]), *blocks], rest))
         changes.append({"change": "restored", "file": str(relative), "lead": "frontmatter: type"})
     if not names.is_clean(relative.stem):
         changes.append(
@@ -403,29 +410,6 @@ def _entry_changes(vault: Path, target: Path, relative: Path) -> list[dict]:
         }
         for change in entries.diff(before, after)
     ]
-
-
-def _split(text: str) -> tuple[list[str] | None, str]:
-    """Frontmatter lines without the markers, and the rest; None when there is no frontmatter."""
-    lines = text.splitlines(keepends=True)
-    if not lines or lines[0].strip() != "---":
-        return None, text
-    for index, line in enumerate(lines[1:], start=1):
-        if line.strip() == "---":
-            return [raw.rstrip("\n") for raw in lines[1:index]], "".join(lines[index + 1 :])
-    return None, text
-
-
-def _blocks(head: list[str]) -> list[tuple[str, list[str]]]:
-    """Frontmatter lines grouped by key; indented and list lines belong to the key above."""
-    blocks: list[tuple[str, list[str]]] = []
-    for line in head:
-        starts_key = line[:1] not in (" ", "-", "") and ":" in line
-        if starts_key or not blocks:
-            blocks.append((line.partition(":")[0].strip(), [line]))
-        else:
-            blocks[-1][1].append(line)
-    return blocks
 
 
 def _digest(path: Path) -> str:

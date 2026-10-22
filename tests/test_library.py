@@ -381,3 +381,102 @@ def test_add_note_knows_the_scope_notes_and_not_general(world):
     assert written == Path("notes/Docker.md")
     with pytest.raises(NoteError, match="project or notes"):
         add_note(config, repos["ai-assistant-hub"], "general", "Other", "x")
+
+
+# Review findings and open acceptance criteria
+
+
+def test_a_shared_entry_loads_with_the_topic_that_fits_not_with_a_newer_one_that_does_not(world):
+    config, repos = world
+    config = Config(vault=config.vault, state_dir=config.state_dir, recall_budget_tokens=250)
+    big = "---\ntype: topic\nupdated: 2026-10-21\n---\n" + "- **Big.** " + "x" * 2000 + "\n"
+    write(config.vault, "notes/Big.md", big)
+    write(config.vault, "notes/Empty.md", "---\ntype: topic\nupdated: 2026-10-22\n---\n")
+    link(config, UV, ["notes/Big.md", "notes/Python.md", "notes/Empty.md"])
+
+    text = recall(hook(repos["haushalt"]), config)
+
+    assert "## notes/Big.md" not in text and "## notes/Python.md" in text
+    assert f"## {UV}\nPython packages with uv, never pip." in text
+
+
+def test_a_link_made_to_a_topic_created_while_a_run_waits_survives_its_checks(world, tmp_path):
+    config, repos = world
+    state = StateDir(config.state_dir).ensure()
+    entry = queue.enqueue(state, session_id="s1", transcript=TRANSCRIPT, cwd="/", reason="clear")
+    target = prepared(config.vault, tmp_path / "x")
+    kept = state.baselines / entry.stem
+    target.rename(kept)
+
+    add_note(config, repos["ai-assistant-hub"], "notes", "Docker", "## Pitfalls\n- **x.** y\n")
+    link(config, UV, ["notes/Docker.md"])
+    changes = baseline.check(config.vault, kept)
+
+    assert "library" in read_frontmatter(config.vault / "notes/Docker.md")
+    assert not [c for c in changes if c["lead"] == "frontmatter: library"]
+
+
+def test_a_bare_path_in_a_project_notes_property_loads_the_entry(world):
+    config, repos = world
+    write(
+        config.vault,
+        f"{HUB}/notes/Deploy.md",
+        "---\ntype: note\nlibrary: library/Python/Package management\n---\nFridays.\n",
+    )
+
+    text = recall(hook(repos["ai-assistant-hub"]), config)
+
+    assert f"## {UV}" in text
+
+
+def test_a_project_notes_property_loads_the_entry_only_in_that_project(world):
+    config, repos = world
+    link(config, UV, [f"{HUB}/notes/Deploy.md"])
+
+    assert f"## {UV}" in recall(hook(repos["ai-assistant-hub"]), config)
+    assert f"## {UV}" not in recall(hook(repos["haushalt"]), config)
+
+
+def test_a_link_into_the_old_private_folder_loads_nothing(world):
+    config, repos = world
+    write(config.vault, "private/Health.md", "Blood pressure.\n")
+    write(config.vault, f"{HUB}/notes/Deploy.md", "See [[private/Health]] and [[Health]].\n")
+
+    text = recall(hook(repos["ai-assistant-hub"]), config)
+
+    assert "Blood pressure" not in text
+
+
+def test_replacing_an_entry_keeps_the_properties_the_user_added(world):
+    config, _ = world
+    write(
+        config.vault,
+        UV,
+        "---\ntype: library\ncreated: 2026-10-01\ntags:\n  - python\naliases: [uv]\n---\nOld.\n",
+    )
+
+    library_write(config, "Python", "Package management", "New.\n", TODAY)
+
+    meta = read_frontmatter(config.vault / UV)
+    assert meta["tags"] == ["python"] and meta["aliases"] == ["uv"]
+    assert (meta["type"], meta["created"], meta["updated"]) == (
+        "library",
+        "2026-10-01",
+        "2026-10-22",
+    )
+    assert (config.vault / UV).read_text().endswith("---\nNew.\n")
+
+
+@pytest.mark.parametrize("title", ['Say "hi"', "Cost $5", "Run `ls`"])
+def test_a_title_with_a_quote_dollar_or_backtick_is_refused(world, title):
+    config, repos = world
+    before = sorted(config.vault.rglob("*"))
+
+    with pytest.raises(LibraryError, match="holds no"):
+        library_write(config, "Python", title, "x\n", TODAY)
+    with pytest.raises(LibraryError, match="holds no"):
+        library_write(config, title, "Fine", "x\n", TODAY)
+    with pytest.raises(NoteError, match="holds no"):
+        add_note(config, repos["ai-assistant-hub"], "project", title, "x\n")
+
+    assert sorted(config.vault.rglob("*")) == before

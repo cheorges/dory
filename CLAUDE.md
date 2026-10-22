@@ -64,7 +64,7 @@ The design decisions of 2026-10-09 (one global memory, Obsidian, vault without g
 
 ## Architecture
 
-See [Record 001](docs/records/001-second-brain.md) and the README.
+See [Record 001](docs/records/001-second-brain.md) and [the guide](docs/guide.md).
 
 - **Capture:** the `SessionEnd` hook puts a transcript copy into a queue; manually also with `/dory:save`
 - **Processing:** a background worker drains the queue, assigns the session to a project and edits the entries of the project's `knowledge.md` and of the topic files in `notes/`; its settings deny it `library/` and the user's notes, and the library entries its session could load come as copies in the bundle; dory's code checks every run against a baseline of the vault (`baseline.py`), and after the queue the worker writes a summary of every project over the limit (`summarize.py`)
@@ -77,6 +77,7 @@ See [Record 001](docs/records/001-second-brain.md) and the README.
 
 Key directories:
 - `plugin/` — the Claude Code plugin (`dory/` Python package, `skills/`, `hooks/`, `bin/dory`)
+- `docs/guide.md` — the user guide behind the short README
 - `docs/records/` — design decisions and feature specs
 - `docs/implementation-log.md` — what was built and checked per story
 - `docs/notes/` — private notes, gitignored

@@ -56,6 +56,7 @@ class _Section:
     title: str
     entries: list[str]
     bare: bool = False  # the title carries content of its own and shows without entries
+    path: Path | None = None  # the vault file a section of the files shows
 
 
 class _Budget:
@@ -90,26 +91,32 @@ def recall(hook: dict, config: Config) -> str:
         _queue_section(project, cwd, state),
     ]
     texts = context.file_texts(vault, ctx.files)
-    listing = _notes_listing(vault, ctx.files)
+    listing = _notes_listing(vault)
     if not texts and not listing and not any(_render(section) for section in lead):
         return ""
     head = _Section("", [HEADER, f"Vault: {vault}"])
     files_text = context.text(texts)
     front = [_render(head), *map(_render, lead)]
-    topics = [item.block for item in listing if item.block]
+    seen = set(texts)
+    topics = [item.text(seen) for item in listing if item.block]
     titles = _render(_Section(NOTES_TITLE, [item.line for item in listing if not item.block]))
     whole = "\n\n".join(block for block in [*front, files_text, *topics, titles] if block)
     limit = summary.limit_chars(config)
     if len(whole) <= limit:
         return whole
-    files = [_Section(context.heading(path), text.splitlines()) for path, text in texts.items()]
+    files = [
+        _Section(context.heading(path), text.splitlines(), path=path)
+        for path, text in texts.items()
+    ]
     paths: list[_Section] = []
     within = "\n\n".join(block for block in [*front, files_text] if block)
     if len(within) > _Budget(limit - _reserve(listing)).left:  # the files themselves do not fit
         if summary.needs_summary(files_text, config):
             files = _summary_or_files(state, ctx, files_text, config, files)
         paths = [_Section(PATHS_TITLE, [f"- {path.as_posix()}" for path in texts])]
-    return _fit([head, *lead], files, paths, listing, limit)
+    # A summary stands for every file it was made of, the library entries they link included.
+    summarized = set(texts) if files and files[0].path is None else set()
+    return _fit([head, *lead], files, paths, listing, limit, summarized)
 
 
 def hook_output(context: str) -> str:
@@ -171,19 +178,30 @@ def _queue_section(project: Project | None, cwd: Path, state: StateDir) -> _Sect
 
 @dataclass(frozen=True)
 class _Listed:
-    """A file in `notes/`: its title line, and for a topic its text as it loads in full,
-    followed by the library entries it links."""
+    """A file in `notes/`: its title line, and for a topic its text as it loads in full and the
+    library entries its `library` property links, with their texts."""
 
     line: str
     block: str  # "" for a list or register, and for an empty topic
+    entries: tuple[tuple[Path, str], ...] = ()
+
+    def text(self, seen: set[Path]) -> str:
+        """The topic followed by its entries that nothing loaded yet; adds them to `seen`.
+
+        Call it only for a topic that loads, so an entry two topics link comes with the first
+        of them that does.
+        """
+        new = [(path, text) for path, text in self.entries if path not in seen]
+        seen.update(path for path, _ in new)
+        linked = context.text(dict(new))
+        return f"{self.block}\n\n{linked}" if linked else self.block
+
+    def size(self, seen: set[Path]) -> int:
+        return len(self.text(set(seen)))
 
 
-def _notes_listing(vault: Path, loaded: list[Path]) -> list[_Listed]:
-    """Every file in `notes/`, most recently updated first; a list or register says so.
-
-    A library entry two topics link comes with the first one in this order; one the project's
-    files load already comes with none.
-    """
+def _notes_listing(vault: Path) -> list[_Listed]:
+    """Every file in `notes/`, most recently updated first; a list or register says so."""
     found = []
     for relative in scopes.notes_folder_files(vault):
         path = vault / relative
@@ -194,19 +212,15 @@ def _notes_listing(vault: Path, loaded: list[Path]) -> list[_Listed]:
         block = ""
         if not label and (text := context.file_texts(vault, [relative]).get(relative)):
             block = f"{context.heading(relative)}\n{text}"
-        entries = [] if label else context.topic_entries(vault, relative)
-        found.append((_updated(path, meta), _Listed(line, block), entries))
+        entries = (
+            ()
+            if not block
+            else tuple(context.file_texts(vault, context.topic_entries(vault, relative)).items())
+        )
+        found.append((_updated(path, meta), _Listed(line, block, entries)))
     found.sort(key=lambda item: item[1].line)
     found.sort(key=lambda item: item[0], reverse=True)
-    seen = set(loaded)
-    listing = []
-    for _, listed, entries in found:
-        new = [entry for entry in entries if entry not in seen]
-        seen.update(new)
-        if listed.block and (linked := context.text(context.file_texts(vault, new))):
-            listed = _Listed(listed.line, f"{listed.block}\n\n{linked}")
-        listing.append(listed)
-    return listing
+    return [listed for _, listed in found]
 
 
 def _updated(path: Path, meta: dict[str, object]) -> str:
@@ -245,10 +259,12 @@ def _fit(
     paths: list[_Section],
     listing: list[_Listed],
     limit: int,
+    summarized: set[Path],
 ) -> str:
     """Front and paths take their room first, with room kept for the titles' heading and
     closing line; the files fill what is left, line by line; each topic then loads whole while
-    it fits, and the titles of the rest get what remains.
+    it fits, with the library entries it links that no loaded file brought yet, and the titles
+    of the rest get what remains. `summarized` are the files a loaded summary stands for.
 
     The files stop at the first line that does not fit, and nothing later fills the gap.
     """
@@ -257,6 +273,7 @@ def _fit(
     first = _fill(front, budget)
     listed = _fill(paths, budget)
     loaded = []
+    seen = set(summarized)  # the library entries loaded so far
     for section in body:
         block = _fill_section(section, budget)
         if budget.cut:
@@ -265,13 +282,15 @@ def _fit(
             loaded.append(block)
         if budget.cut:
             break
+        if section.path:
+            seen.add(section.path)
     cut = budget.cut
     left = budget.left + reserve + (0 if cut else len(CUT_MARKER) + 2)
     topics, rest = [], []
     for item in listing:
-        if item.block and len(item.block) + 2 + reserve <= left:
-            topics.append(item.block)
-            left -= len(item.block) + 2
+        if item.block and (size := item.size(seen)) + 2 + reserve <= left:
+            topics.append(item.text(seen))
+            left -= size + 2
         else:
             rest.append(item.line)
     titles = _fill_titles(_Section(NOTES_TITLE, rest), left)
