@@ -69,12 +69,12 @@ def test_a_project_note_is_a_new_file_named_by_its_title(world):
     assert not (config.vault / HUB / "knowledge.md").exists()
 
 
-def test_a_general_note_is_a_new_topic_file_and_needs_no_summary(world):
+def test_a_note_without_project_is_a_new_topic_file_and_needs_no_summary(world):
     config, hub, home, spawned = world
     entries = "## Preferences\n- **Python packages with uv instead of pip.** Faster.\n"
 
-    from_project = add_note(config, hub, "general", "Python packaging", entries, TODAY)
-    from_outside = add_note(config, home, "general", "Notion", "- **A.** B.\n", TODAY)
+    from_project = add_note(config, hub, "notes", "Python packaging", entries, TODAY)
+    from_outside = add_note(config, home, "notes", "Notion", "- **A.** B.\n", TODAY)
 
     assert from_project == Path("notes/Python packaging.md")
     assert from_outside == Path("notes/Notion.md")
@@ -117,9 +117,9 @@ def test_an_existing_name_in_any_case_is_never_overwritten(world):
     with pytest.raises(NoteError, match=f"{HUB}/notes/Release steps.md exists"):
         add_note(config, hub, "project", "release STEPS", "other", TODAY)
     with pytest.raises(NoteError, match=r"notes/Notion.md exists \(topic\): change that file"):
-        add_note(config, hub, "general", "notion", "- **Other.** x\n", TODAY)
+        add_note(config, hub, "notes", "notion", "- **Other.** x\n", TODAY)
     with pytest.raises(NoteError, match=r"notes/Shopping list.md exists \(list\)"):
-        add_note(config, hub, "general", "Shopping List", "- **Other.** x\n", TODAY)
+        add_note(config, hub, "notes", "Shopping List", "- **Other.** x\n", TODAY)
 
     assert mine.read_text() == "mine\n"
     assert notion.read_text().endswith("- **x.** y\n")
@@ -252,7 +252,7 @@ def test_cli_add_note_reads_the_text_from_stdin_and_prints_the_path(world):
 def test_cli_add_note_takes_the_text_as_arguments(world):
     config, hub, _, _ = world
 
-    result = cli(config, hub, "add-note", "--scope", "general", "--title", "uv", "- **uv.** x")
+    result = cli(config, hub, "add-note", "--scope", "notes", "--title", "uv", "- **uv.** x")
 
     assert result.returncode == 0, result.stderr
     assert "notes/uv.md" in result.stdout
@@ -298,7 +298,7 @@ def test_prepare_note_names_the_scopes_and_the_titles_with_their_types(world):
     assert f"Vault: {config.vault}" in head
     assert "Project: ai-assistant-hub" in head
     assert "Domain: private" in head
-    assert f"- project: {HUB}/notes/\n- general: notes/ (a new topic file)" in head
+    assert f"- project: {HUB}/notes/\n- notes: notes/ (a new topic file)" in head
     assert "The project's notes:\n- Release steps\n" in head
     assert "- Notion (topic)\n- Shopping list (list)" in head
     assert not [line for line in head.splitlines() if line.startswith("- private")]
@@ -314,7 +314,7 @@ def test_outside_a_repo_there_is_no_project_scope(world):
     head = text.split("# Writing rules")[0]
     assert "Project: none" in head
     assert "- project:" not in head
-    assert "- general: notes/ (a new topic file)" in head
+    assert "- notes: notes/ (a new topic file)" in head
     assert "The project's notes" not in head
 
 

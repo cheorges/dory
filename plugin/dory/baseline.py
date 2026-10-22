@@ -3,8 +3,9 @@
 The worker edits files with a model, so dory's code guards what the model must not change and
 reports what it did change. The baseline copies the files a run may write, the project's
 `knowledge.md` and every file in `notes/`, and hashes the files it must leave alone: every other
-`.md` under `projects/`, the user's notes among them, and every `.md` under `private/`. After
-the run, the checks restore the frontmatter keys that place a file and report every watched file
+`.md` under `projects/`, the user's notes among them, and every `.md` under `library/`. After
+the run, the checks restore the frontmatter keys that place a file, and a topic file's `library`
+property, which only the user and `dory link` set, and report every watched file
 the run created, changed or deleted, and every entry it added, changed or removed in the
 project's `knowledge.md` and in the topic files of `notes/`. Nothing the user may have written
 is restored: the checks cannot tell the run's writes from the user's, and the snapshot is the
@@ -35,8 +36,9 @@ from dory.project import Project
 from dory.repodocs import SWEEP_GRACE_SECONDS
 from dory.scopes import (
     KNOWLEDGE,
+    LIBRARY,
+    LIBRARY_KEY,
     NOTES_FOLDER,
-    PRIVATE,
     file_type,
     knowledge_file,
     notes_folder_files,
@@ -45,7 +47,7 @@ from dory.scopes import (
 from dory.state import StateDir
 
 KNOWLEDGE_KEYS = ("type", "domain", "paths")
-_WATCHED = ("projects", PRIVATE)
+_WATCHED = ("projects", LIBRARY)
 _UNWATCHED = {".obsidian", ".trash"}  # Obsidian writes its workspace while the vault is open
 _COMPLETE = "COMPLETE"
 _CHECKED = "CHECKED"
@@ -55,8 +57,8 @@ _UNREADABLE = "unreadable"
 
 
 def create_skeletons(vault: Path, project: Project | None, today: date) -> None:
-    """The project's `knowledge.md` with its frontmatter, and an empty `private/` for the user."""
-    (vault / PRIVATE).mkdir(parents=True, exist_ok=True)
+    """The project's `knowledge.md` with its frontmatter, and an empty `library/` for the user."""
+    (vault / LIBRARY).mkdir(parents=True, exist_ok=True)
     if project is None or not project.name:
         return
     path = vault / "projects" / project.name / KNOWLEDGE
@@ -106,19 +108,25 @@ def capture(vault: Path, target: Path, project: Project | None, *, topics_allowe
 
 
 def record_dory_write(state: StateDir, vault: Path, relative: Path) -> None:
-    """A watched file dory writes for the user while entries wait: their checks take it as given.
+    """A file dory writes for the user while entries wait: their checks take it as given.
 
+    A watched file gets its new hash. A file in `notes/` is a topic file whose `library` property
+    `dory link` changed: the baseline's copy takes the new property, so the checks keep it.
     Call it under `notes_lock`, together with the write, so no check sees the file in between.
     """
-    if relative.parts[0] not in _WATCHED:
+    watched = relative.parts[0] in _WATCHED
+    if not watched and relative.parts[0] != NOTES_FOLDER:
         return
     queued = {path.stem for path in state.queue.glob("*.json")}
     digest = _digest_or_mark(vault / relative)
     for kept in sorted(state.baselines.glob("*")):
         if kept.name in queued and _open(kept) and (kept / _LAYOUT).exists():
-            hashes = json.loads((kept / _HASHES).read_text())
-            hashes[str(relative)] = digest
-            (kept / _HASHES).write_text(json.dumps(hashes, ensure_ascii=False))
+            if watched:
+                hashes = json.loads((kept / _HASHES).read_text())
+                hashes[str(relative)] = digest
+                (kept / _HASHES).write_text(json.dumps(hashes, ensure_ascii=False))
+            elif (copy := kept / "files" / relative).is_file():
+                _copy_keys(vault / relative, copy, (LIBRARY_KEY,))
 
 
 @contextmanager
@@ -156,6 +164,7 @@ def check(vault: Path, target: Path) -> list[dict]:
         )
     for relative in kept_notes:
         changes += _guarded(relative, lambda r=relative: _restore_type(vault, target, r))
+        changes += _guarded(relative, lambda r=relative: _restore_library(vault, target, r))
     changes += [
         {"change": "failed", "file": str(r), "lead": "not readable when the baseline was taken"}
         for r in sorted(uncopied)
@@ -294,10 +303,36 @@ def _restore_type(vault: Path, target: Path, relative: Path) -> list[dict]:
     return _restore_keys(vault, target, relative, ("type",))
 
 
+def _restore_library(vault: Path, target: Path, relative: Path) -> list[dict]:
+    """The `library` property the file had before the run; a file the run deleted stays gone."""
+    if not (vault / relative).exists():
+        return []
+    return _restore_keys(vault, target, relative, (LIBRARY_KEY,))
+
+
+def _copy_keys(source: Path, copy: Path, keys: tuple[str, ...]) -> None:
+    """Give `copy` the frontmatter blocks of `keys` that `source` has, in place of its own."""
+    head, rest = _split(copy.read_text())
+    taken = [block for block in _blocks(_split(source.read_text())[0] or []) if block[0] in keys]
+    own = [block for block in _blocks(head or []) if block[0] not in keys]
+    lines = [line for _, block in [*own, *taken] for line in block]
+    copy.write_text(("\n".join(["---", *lines, "---", ""]) if lines else "") + rest)
+
+
 def _new_note(vault: Path, relative: Path) -> list[dict]:
-    """A file the run created in `notes/`: a topic unless it says otherwise, named by the rules."""
+    """A file the run created in `notes/`: a topic unless it says otherwise, named by the rules.
+
+    It links no library entry: only the user and `dory link` set that property.
+    """
     changes = []
     path = vault / relative
+    if LIBRARY_KEY in read_frontmatter(path):
+        head, rest = _split(path.read_text())
+        lines = [line for key, block in _blocks(head or []) if key != LIBRARY_KEY for line in block]
+        path.write_text(("\n".join(["---", *lines, "---", ""]) if lines else "") + rest)
+        changes.append(
+            {"change": "restored", "file": str(relative), "lead": f"frontmatter: {LIBRARY_KEY}"}
+        )
     if "type" not in read_frontmatter(path):
         text = path.read_text()
         head, rest = _split(text)

@@ -753,3 +753,21 @@ All three verdicts `correct`; the security auditor found every way into a work p
 ## Record 004, Story S7: release 0.5.0 prepared (2026-10-21)
 
 **Implementation.** Version 0.5.0 in the three files (the version test is green); CHANGELOG entry with what changes and what happens to the files 0.4.0 wrote; README (what happens automatically, the commands, `private/`, the session start, the vault); the project CLAUDE.md (About, Architecture, status, Recent Decisions, Next Step). Nothing tagged or pushed.
+
+## Record 006: the library (2026-10-22)
+
+**User story.** As a user who wants to file knowledge deliberately, I want a skill that proposes the folder, the title and the notes to link it from, writes after my yes, and makes the entry load where it belongs, while `/dory:note` stays quick and never writes into that folder.
+
+**Implementation.**
+- `scopes.py`: `LIBRARY` (`library/`) replaces `PRIVATE`; `LIBRARY_KEY` names the property; `OLD_PRIVATE` is only read for the hint to rename the folder.
+- `links.py`: `library_entries` (the links of a text into `library/`, the frontmatter included) and `linked_by_property` (only the `library` property, for topic files).
+- `context.py`: `topic_entries`, `library_files` (every entry a session in the project could load, for the worker).
+- `recall.py`: a topic block carries the entries its property links, minus those already loaded; a `private/` with files gets one line asking the user to rename it.
+- `baseline.py`: `library/` is watched; `_restore_library` puts a topic file's property back after a run; a new topic file loses one; `record_dory_write` updates the baseline's copy of a topic file that `dory link` changed while an entry waits.
+- `ingest.py`: the deny rules name `library/**`; redacted copies of `library_files` go into `work/<id>/library/` and `task.md` names them as reference.
+- `library.py` (new): `library_context`, `library_write`, `link`, `guard`; `cli.py`: `guard`, `library-context`, `library-write`, `link`. `frontmatter.add_list_item` writes the property as a block list.
+- `note.py`: scope `notes` instead of `general`. Note skill: the `PreToolUse` hook on `Write|Edit` running `dory guard`; private content points to `/dory:library`. Library skill (new). Rules and ingest skill name `library/` and the copies.
+
+**Decisions and reasoning.** See Record 006, decisions 1 to 9 and its implementation notes. The library skill writes only through dory commands because the note guard stays active for the rest of a session (probed live); it searches with `grep`, `rg` and `ls` because Claude Code 2.1.308 offers no Grep or Glob tool in a normal session.
+
+**Checked.** `uv run pytest -q` and `ruff check` green. Live (Haiku): library and note checks three of three; a forced Edit of a library entry through `/dory:note` blocked by the guard; the worker's deny probe on `library/**`; the rule checks "knowledge lands in its scope" and "a library entry never reaches a topic file".

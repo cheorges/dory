@@ -259,13 +259,13 @@ def test_a_repository_named_like_a_reserved_context_keeps_its_own_summary(world)
     assert "- Odd project." in recall(hook(odd), config)
 
 
-def test_the_context_is_the_projects_notes_their_linked_private_notes_and_its_knowledge(world):
+def test_the_context_is_the_projects_notes_their_linked_library_entries_and_its_knowledge(world):
     config, state, hub, _ = world
     knowledge(config.vault, 3)
     write(config.vault, f"{HUB}/notes/B second.md", "Also [[Contract]].\n")
-    write(config.vault, f"{HUB}/notes/A first.md", "See [[private/Contract]].\n")
-    write(config.vault, "private/Contract.md", "Notice period three months.\n")
-    write(config.vault, "private/Unlinked.md", "Not loaded.\n")
+    write(config.vault, f"{HUB}/notes/A first.md", "See [[library/Contract]].\n")
+    write(config.vault, "library/Contract.md", "Notice period three months.\n")
+    write(config.vault, "library/Unlinked.md", "Not loaded.\n")
     write(config.vault, "notes/Notion.md", "---\ntype: topic\n---\n- **x.** y\n")
     project = project_for_root(hub.resolve(), state.projects_file)
 
@@ -273,21 +273,21 @@ def test_the_context_is_the_projects_notes_their_linked_private_notes_and_its_kn
 
     assert ctx.files == [
         Path(f"{HUB}/notes/A first.md"),
-        Path("private/Contract.md"),
+        Path("library/Contract.md"),
         Path(f"{HUB}/notes/B second.md"),
         Path(f"{HUB}/knowledge.md"),
     ]
-    assert ctx.linked == ("private/Contract.md",)
+    assert ctx.linked == ("library/Contract.md",)
 
 
-def test_a_linked_private_note_or_a_private_project_makes_the_context_private(world):
+def test_a_linked_library_entry_or_a_private_project_makes_the_context_private(world):
     config, state, hub, _ = world
     project = project_for_root(hub.resolve(), state.projects_file)
     knowledge(config.vault, 3)
     assert summary.context_for(config.vault, project).domain == "work"
 
     write(config.vault, f"{HUB}/notes/Mine.md", "See [[Contract]].\n")
-    write(config.vault, "private/Contract.md", "Notice period three months.\n")
+    write(config.vault, "library/Contract.md", "Notice period three months.\n")
     assert summary.context_for(config.vault, project).domain == "private"
 
     (config.vault / HUB / "notes" / "Mine.md").unlink()
@@ -298,11 +298,11 @@ def test_a_linked_private_note_or_a_private_project_makes_the_context_private(wo
 def test_a_summary_made_with_other_linked_notes_is_not_loaded(world):
     config, state, hub, spawned = world
     knowledge(config.vault, 30)
-    write(config.vault, "private/Contract.md", "Notice period three months.\n")
-    write(config.vault, "private/Health.md", "Doctor on Friday.\n")
+    write(config.vault, "library/Contract.md", "Notice period three months.\n")
+    write(config.vault, "library/Health.md", "Doctor on Friday.\n")
     note = write(config.vault, f"{HUB}/notes/Mine.md", "See [[Contract]].\n")
     make_summarize(config, state, FakeRunner(answer("- Notice period of three months.")))({NAME})
-    assert summary.load(state, NAME).linked == ("private/Contract.md",)
+    assert summary.load(state, NAME).linked == ("library/Contract.md",)
 
     note.write_text("See [[Health]].\n")
     text = recall(hook(hub), config)

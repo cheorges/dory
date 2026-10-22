@@ -61,8 +61,8 @@ def vault(tmp_path) -> Path:
     write(vault, "projects/hub/Loki lauscht auf Port 3100.md", "old 0.3.0 note\n")
     write(vault, "notes/Notion.md", TOPIC)
     write(vault, "notes/Shopping list.md", SHOPPING_LIST)
-    write(vault, "private/Employment contract.md", "Notice period three months.\n")
-    write(vault, "private/family/Holidays.md", "Summer in Ticino.\n")
+    write(vault, "library/Employment contract.md", "Notice period three months.\n")
+    write(vault, "library/family/Holidays.md", "Summer in Ticino.\n")
     return vault
 
 
@@ -77,7 +77,7 @@ def unexpected(changes: list[dict]) -> list[tuple[str, str]]:
     return sorted((c["file"], c["lead"]) for c in changes if c["change"] == "unexpected")
 
 
-def test_the_project_gets_a_skeleton_and_private_an_empty_folder(tmp_path):
+def test_the_project_gets_a_skeleton_and_an_empty_library(tmp_path):
     vault = tmp_path / "vault"
 
     baseline.create_skeletons(vault, HUB, date(2026, 10, 19))
@@ -88,18 +88,18 @@ def test_the_project_gets_a_skeleton_and_private_an_empty_folder(tmp_path):
         "paths": ["/repos/hub"],
         "updated": "2026-10-19",
     }
-    assert (vault / "private").is_dir() and not list((vault / "private").iterdir())
+    assert (vault / "library").is_dir() and not list((vault / "library").iterdir())
     assert not (vault / "general").exists()
 
 
-def test_an_existing_knowledge_file_and_private_folder_stay_as_they_are(vault):
+def test_an_existing_knowledge_file_and_library_stay_as_they_are(vault):
     before = (vault / "projects" / "hub" / "knowledge.md").read_text()
 
     baseline.create_skeletons(vault, HUB, date(2026, 10, 19))
     baseline.create_skeletons(vault, None, date(2026, 10, 19))
 
     assert (vault / "projects" / "hub" / "knowledge.md").read_text() == before
-    assert sorted(p.name for p in (vault / "private").rglob("*.md")) == [
+    assert sorted(p.name for p in (vault / "library").rglob("*.md")) == [
         "Employment contract.md",
         "Holidays.md",
     ]
@@ -185,23 +185,23 @@ def test_files_of_an_earlier_version_and_other_projects_files_are_reported(vault
     ]
 
 
-def test_private_files_a_run_touched_are_reported_and_dory_writes_nothing_there(vault, tmp_path):
+def test_library_files_a_run_touched_are_reported_and_dory_writes_nothing_there(vault, tmp_path):
     target = prepared(vault, tmp_path)
-    private = vault / "private"
-    (private / "Employment contract.md").write_text("changed by the run\n")
-    (private / "family" / "Holidays.md").unlink()
-    (private / "family" / "New.md").write_text("created by the run\n")
-    (private / "scan.pdf").write_bytes(b"an attachment, not a note")
+    library = vault / "library"
+    (library / "Employment contract.md").write_text("changed by the run\n")
+    (library / "family" / "Holidays.md").unlink()
+    (library / "family" / "New.md").write_text("created by the run\n")
+    (library / "scan.pdf").write_bytes(b"an attachment, not a note")
 
     changes = baseline.check(vault, target)
 
     assert unexpected(changes) == [
-        ("private/Employment contract.md", "changed"),
-        ("private/family/Holidays.md", "deleted"),
-        ("private/family/New.md", "created"),
+        ("library/Employment contract.md", "changed"),
+        ("library/family/Holidays.md", "deleted"),
+        ("library/family/New.md", "created"),
     ]
-    assert (private / "Employment contract.md").read_text() == "changed by the run\n"
-    assert not (private / "family" / "Holidays.md").exists()
+    assert (library / "Employment contract.md").read_text() == "changed by the run\n"
+    assert not (library / "family" / "Holidays.md").exists()
 
 
 def test_a_kept_baseline_of_the_previous_layout_is_discarded(vault, tmp_path):
@@ -397,7 +397,7 @@ def test_a_killed_attempt_keeps_its_baseline_and_a_checked_one_takes_a_new_one(v
 
 def test_a_dangling_link_in_a_watched_folder_does_not_stop_the_checks(vault, tmp_path):
     (vault / "projects" / "hub" / "gone.md").symlink_to(tmp_path / "nowhere.md")
-    (vault / "private" / "gone.md").symlink_to(tmp_path / "nowhere.md")
+    (vault / "library" / "gone.md").symlink_to(tmp_path / "nowhere.md")
     target = prepared(vault, tmp_path)
 
     assert baseline.check(vault, target) == []
@@ -531,7 +531,7 @@ def test_the_private_folder_exists_before_the_run_and_nothing_is_written_into_it
     seen = []
 
     def claude(command, cwd, env, timeout):
-        private = config.vault / "private"
+        private = config.vault / "library"
         seen.append(
             (private.is_dir(), list(private.iterdir()), (config.vault / "general").exists())
         )

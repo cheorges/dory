@@ -2,9 +2,10 @@
 
 A project keeps its knowledge in `projects/<name>/knowledge.md`, which the worker writes, and
 the user's notes in `projects/<name>/notes/`, one file each. Everything without a project lives
-in `notes/`: topic files the worker maintains, lists and registers. `private/` belongs to the
-user. Any other file in a project folder is from an earlier version of dory and is neither read
-nor written.
+in `notes/`: topic files the worker maintains, lists and registers. `library/` holds the knowledge
+the user files deliberately, by hand or through `/dory:library`; a project note or a topic file
+links an entry there to load it. Any other file in a project folder is from an earlier version
+of dory and is neither read nor written.
 """
 
 from pathlib import Path
@@ -14,7 +15,9 @@ from dory.project import Project
 
 KNOWLEDGE = "knowledge.md"
 NOTES_FOLDER = "notes"  # in the vault for everything without a project, in a project for its notes
-PRIVATE = "private"
+LIBRARY = "library"
+LIBRARY_KEY = "library"  # the property of a project note or topic file that links entries
+OLD_PRIVATE = "private"  # the folder before 0.6.0; the user renames it in Obsidian
 LIST_TYPES = frozenset({"list", "register"})
 
 

@@ -580,7 +580,7 @@ def test_knowledge_lands_in_its_scope(world):
     assert not world.entries_about("notion", f"projects/{HUB}")
     for term in ("sudo", "synology", "docker-compose"):
         assert not world.entries_about(term), world.dump()
-    assert not world.files("private"), world.dump()
+    assert not world.files("library"), world.dump()
 
 
 def test_an_insight_on_an_existing_topic_extends_its_file(world):
@@ -605,9 +605,9 @@ def test_an_insight_on_an_existing_topic_extends_its_file(world):
     assert "Overwriting a Notion page" in topic.read_text()
 
 
-def test_a_private_note_never_reaches_a_topic_file(world):
+def test_a_library_entry_never_reaches_a_topic_file(world):
     world.note(
-        "private/Notion.md",
+        "library/Notion.md",
         "Our family budget lives in Notion, on the shared page Haushalt Sonnenberg.\n",
     )
     world.session(

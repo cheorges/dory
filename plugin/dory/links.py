@@ -1,11 +1,13 @@
-"""Links in the user's project notes that bring a private note into the session start.
+"""Links that bring a library entry into the session start.
 
-Only a link whose target lies in `private/` counts. A target is a path from the vault root
-(`private/Employment contract`) or a bare name (`Employment contract`) that matches a file under
-`private/`. Obsidian allows an embed (`![[...]]`), an alias (`|...`), a heading (`#...`) and the
-`.md` suffix, and Markdown links with a percent-encoded or bracketed target; links inside code
-are no links. Names match without case, as APFS and Obsidian match them. Every target is
-resolved to its real path and kept only when that path lies inside `private/`, so neither `..`
+A project note links an entry in its text or in its `library` property; a topic file in `notes/`
+only in the property, since the worker writes its text (`linked_by_property`). Only a link whose
+target lies in `library/` counts. A target is a path from the vault root
+(`library/Python/Package management`) or a bare name (`Package management`) that matches a file
+under `library/`. Obsidian allows an embed (`![[...]]`), an alias (`|...`), a heading (`#...`)
+and the `.md` suffix, and Markdown links with a percent-encoded or bracketed target; links inside
+code are no links. Names match without case, as APFS and Obsidian match them. Every target is
+resolved to its real path and kept only when that path lies inside `library/`, so neither `..`
 nor a symlink leads out of it.
 """
 
@@ -14,8 +16,9 @@ from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import unquote
 
+from dory.frontmatter import read_frontmatter
 from dory.names import name_key
-from dory.scopes import PRIVATE
+from dory.scopes import LIBRARY, LIBRARY_KEY
 
 _FENCE = ("```", "~~~")
 _INLINE_CODE = re.compile(r"`[^`\n]*`")
@@ -25,17 +28,30 @@ _LINK = re.compile(
 )
 
 
-def private_notes(vault: Path, text: str) -> list[Path]:
-    """Vault-relative paths of the private notes `text` links, in the order of the first link."""
-    private = (vault / PRIVATE).resolve()
-    if not private.is_dir():
+def library_entries(vault: Path, text: str) -> list[Path]:
+    """Vault-relative paths of the library entries `text` links, in the order of the first link.
+
+    A project note's whole text counts, its frontmatter and so its `library` property included.
+    """
+    library = (vault / LIBRARY).resolve()
+    if not library.is_dir():
         return []
     found: list[Path] = []
     for target in _targets(_INLINE_CODE.sub("", _without_fenced_code(text))):
-        path = _resolve(vault, private, target)
+        path = _resolve(vault, library, target)
         if path is not None and path not in found:
             found.append(path)
     return found
+
+
+def linked_by_property(vault: Path, path: Path) -> list[Path]:
+    """The library entries the `library` property of `path` links; a bare path counts too."""
+    value = read_frontmatter(path).get(LIBRARY_KEY)
+    values = value if isinstance(value, list) else [value] if value else []
+    text = "\n".join(
+        item if "[[" in item or "](" in item else f"[[{item}]]" for item in map(str, values)
+    )
+    return library_entries(vault, text)
 
 
 def _without_fenced_code(text: str) -> str:
@@ -60,14 +76,14 @@ def _targets(text: str) -> Iterator[str]:
             yield target if target.lower().endswith(".md") else f"{target}.md"
 
 
-def _resolve(vault: Path, private: Path, target: str) -> Path | None:
+def _resolve(vault: Path, library: Path, target: str) -> Path | None:
     if "/" in target:
         candidate = _walk(vault, target.split("/"))
     else:
         candidate = next(
             (
                 path
-                for path in sorted(private.rglob("*.md"))
+                for path in sorted(library.rglob("*.md"))
                 if name_key(path.name) == name_key(target)
             ),
             None,
@@ -75,9 +91,9 @@ def _resolve(vault: Path, private: Path, target: str) -> Path | None:
     if candidate is None:
         return None
     real = candidate.resolve()
-    if not real.is_file() or not real.is_relative_to(private):
+    if not real.is_file() or not real.is_relative_to(library):
         return None
-    return Path(PRIVATE) / real.relative_to(private)  # `private/` may itself be a link
+    return Path(LIBRARY) / real.relative_to(library)  # `library/` may itself be a link
 
 
 def _walk(root: Path, parts: list[str]) -> Path | None:

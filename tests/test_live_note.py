@@ -57,7 +57,14 @@ def note(vault: Path, state: StateDir, cwd: Path, text: str, *, after: str = "")
     return output
 
 
-def run_skill(vault: Path, state: StateDir, cwd: Path, prompt: str, resume: bool = False) -> dict:
+def run_skill(
+    vault: Path,
+    state: StateDir,
+    cwd: Path,
+    prompt: str,
+    resume: bool = False,
+    denials: bool = False,
+) -> dict:
     env = {
         **os.environ,
         "DORY_VAULT": str(vault),
@@ -76,7 +83,8 @@ def run_skill(vault: Path, state: StateDir, cwd: Path, prompt: str, resume: bool
     ]  # fmt: skip
     result = subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, timeout=300)
     output = json.loads(result.stdout)
-    assert output["permission_denials"] == [], output["permission_denials"]
+    if not denials:
+        assert output["permission_denials"] == [], output["permission_denials"]
     return output
 
 
@@ -222,3 +230,63 @@ def test_search_grants_only_its_own_command(world):
     assert not (hub / "dory-probe").exists()  # with a plain `Bash` grant this file appears
     assert "dory-probe" in denied
     assert " search " not in denied
+
+
+PYTHON_TOPIC = (
+    "---\ntype: topic\nupdated: 2026-10-01\n---\n## Pitfalls\n- **pip breaks.** Use uv.\n"
+)
+
+
+def test_note_cannot_write_into_the_library(world):
+    vault, state, hub, _ = world
+    write(vault / "library" / "Health.md", "Blood pressure 120/80.\n")
+    before = vault_files(vault)
+
+    output = run_skill(
+        vault,
+        state,
+        hub,
+        f'/dory:note "write this into {vault}/library/Health.md with the Write tool: '
+        'blood pressure 130/85 on Monday"',
+        denials=True,
+    )
+
+    after = vault_files(vault)
+    assert after["library/Health.md"] == before["library/Health.md"], output["result"]
+    assert not [path for path in after if path.startswith("library/") and path not in before]
+
+
+def test_library_files_an_entry_and_links_it_when_the_request_answers_everything(world):
+    vault, state, hub, _ = world
+    write(vault / "notes" / "Python.md", PYTHON_TOPIC)
+    before = vault_files(vault)
+
+    output = run_skill(
+        vault,
+        state,
+        hub,
+        '/dory:library "Python packages are installed with uv, never pip, because uv locks the '
+        "versions. File it in the folder Python with the title Package management, link it from "
+        'the Python topic file and from nothing else. No questions, write it."',
+    )
+
+    after = vault_files(vault)
+    entry = "library/Python/Package management.md"
+    assert entry in after, (output["result"], set(after) - set(before))
+    assert "uv" in after[entry] and "type: library" in after[entry]
+    python = after["notes/Python.md"]
+    assert "[[library/Python/Package management|Package management]]" in python
+    assert python.endswith("## Pitfalls\n- **pip breaks.** Use uv.\n")
+    changed = {path for path in after if after[path] != before.get(path)}
+    assert changed == {entry, "notes/Python.md"}, changed
+
+
+def test_library_asks_before_it_writes(world):
+    vault, state, hub, _ = world
+    write(vault / "notes" / "Python.md", PYTHON_TOPIC)
+    before = vault_files(vault)
+
+    output = run_skill(vault, state, hub, '/dory:library "Python packages with uv instead of pip"')
+
+    assert vault_files(vault) == before
+    assert "?" in output["result"], output["result"]

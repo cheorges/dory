@@ -10,6 +10,13 @@ The session start may take a share of the context window you choose, instead of 
 - **Topics in full.** After the project's files, each topic file in `notes/` loads whole, most recently updated first, as long as it fits; the rest, and every list and register, stays a title line.
 - **Summaries are capped.** A project still gets a summary once its files exceed 80 % of the limit, but a summary is at most 10,000 tokens. A change of level or window makes existing summaries stale; the worker rebuilds them.
 
+`private/` becomes `library/`, and `/dory:library` files knowledge there in a dialog ([Record 006](docs/records/006-library.md)).
+
+- **The library.** `library/` holds the knowledge you file deliberately, in folders you choose. `/dory:library "..."` proposes the folder, the title, the content with wikilinks to the notes it mentions, and the files to link it from, and writes after your yes, through `dory library-write` and `dory link`.
+- **Links load entries.** A project note links a library entry in its text or in its `library` property, and the entry loads in that project's sessions. A topic file in `notes/` links one in its `library` property only, and the entry loads in every session, right after the topic. The worker gets copies of the entries its session could load and does not write them again; the checks after a run put back a `library` property the run changed.
+- **`/dory:note` cannot write into the library.** A hook of the skill blocks Write and Edit under `library/` for the rest of the session. The scope `general` is now `notes` (`dory add-note --scope notes`), and "remember in general" is gone.
+- **Rename `private/` yourself.** dory does not move the folder, since links to it would break. Rename it to `library` in Obsidian, which updates the links; until then the session start says that `private/` still holds files.
+
 ## 0.5.0 (2026-10-21)
 
 Your notes become files with a title, everything without a project moves into `notes/`, and `private/` becomes your own folder that dory reads only through your links. The update does not migrate notes 0.4.0 wrote; see the last points.

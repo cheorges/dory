@@ -65,7 +65,7 @@ def world(tmp_path):
         "---\ntype: topic\n---\n## How-to\n"
         "- **Deploy Python tools with uv instead of pip.** uv runs PEP 723 scripts.\n",
     )
-    write(vault, "private/family/Taxes.md", "The tax return is deployed to the office in May.\n")
+    write(vault, "library/family/Taxes.md", "The tax return is deployed to the office in May.\n")
     write(
         vault,
         "projects/haushalt/knowledge.md",
@@ -135,12 +135,12 @@ def test_a_list_saved_with_a_byte_order_mark_is_found(world):
     assert "type: knowledge" not in text
 
 
-def test_every_session_searches_the_whole_vault_private_included(world):
+def test_every_session_searches_the_whole_vault_library_included(world):
     config, hub, household, home = world
 
     for cwd in (hub, household, home):
         text = search(config, cwd, "deploy")
-        assert "- Taxes (private note) → private/family/Taxes.md" in text
+        assert "- Taxes (library entry) → library/family/Taxes.md" in text
         assert "projects/haushalt/knowledge.md" in text
         assert "uv instead of pip" in text
         assert "Loki only starts" in text

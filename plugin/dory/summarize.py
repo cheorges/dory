@@ -38,7 +38,7 @@ Write the summary and nothing else: no preamble, no closing remark, no code fenc
 - Pitfalls and decisions first, each with what goes wrong without it; then facts, how-tos and
   preferences. Leave out history and detail a reader can look up in the files.
 - Keep the gist of the user's own notes (the files under a project's notes/ folder and under
-  private/), in their words where possible.
+  library/), in their words where possible.
 - Short bullets under the headings ### Pitfalls, ### Decisions, ### Facts, ### How-to,
   ### Preferences and ### User notes, in this order; leave out a heading without content.
 """

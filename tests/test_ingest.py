@@ -108,9 +108,9 @@ def test_claude_runs_confined_in_the_vault_after_a_snapshot(setup):
     settings = json.loads(call["command"][call["command"].index("--settings") + 1])
     assert settings["disableAllHooks"] is True
     assert settings["permissions"]["deny"] == [
-        "Read(private/**)",
-        "Edit(private/**)",
-        "Write(private/**)",
+        "Read(library/**)",
+        "Edit(library/**)",
+        "Write(library/**)",
         "Edit(projects/*/notes/**)",
         "Write(projects/*/notes/**)",
     ]
@@ -276,7 +276,7 @@ def test_task_names_the_files_in_notes_with_their_type_and_today(setup):
     ) in task
     assert "Old.md" not in task
     assert "create a new topic file there only for a subject no file covers" in task
-    assert "`private/` is the user's folder: you cannot read it" in task
+    assert "`library/` is the user's folder: you cannot read it" in task
     assert "knowledge file" not in task and "The user's notes" not in task  # no project
     assert "general/" not in task and "notes.md" not in task
     assert "overview" not in task and "Known projects" not in task

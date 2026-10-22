@@ -86,3 +86,51 @@ def _scalar(raw: str) -> str:
     if len(raw) >= 2 and raw[0] == raw[-1] and raw[0] in "\"'":
         return raw[1:-1]
     return raw
+
+
+def add_list_item(text: str, key: str, item: str) -> str:
+    """`text` with `item` appended to the list property `key`, written as a block list.
+
+    An inline list or a scalar under `key` becomes a block list with its values kept; a file
+    without frontmatter gets one. The other keys and the body stay as they are.
+    """
+    lines = text.splitlines(keepends=True)
+    end = closing_line(lines)
+    if end is None:
+        head, rest = [], text
+    else:
+        head, rest = [line.rstrip("\n") for line in lines[1:end]], "".join(lines[end + 1 :])
+    blocks = _key_blocks(head)
+    found = next((index for index, (name, _) in enumerate(blocks) if name == key), None)
+    values: list[str] = []
+    if found is not None:
+        current = parse_frontmatter("\n".join(["---", *blocks[found][1], "---"])).get(key)
+        values = [str(value) for value in current] if isinstance(current, list) else []
+        if isinstance(current, str) and current:
+            values = [current]
+    items = [*values, item]
+    block = [f"{key}:", *(f"  - {json.dumps(value, ensure_ascii=False)}" for value in items)]
+    if found is None:
+        blocks.append((key, block))
+    else:
+        blocks[found] = (key, block)
+    head = [line for _, block_lines in blocks for line in block_lines]
+    return "\n".join(["---", *head, "---", ""]) + rest
+
+
+def closing_line(lines: list[str]) -> int | None:
+    """The index of the line that closes the frontmatter; None without a complete one."""
+    if not lines or lines[0].strip() != "---":
+        return None
+    return next((index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"), None)
+
+
+def _key_blocks(head: list[str]) -> list[tuple[str, list[str]]]:
+    """Frontmatter lines grouped by key; indented and list lines belong to the key above."""
+    blocks: list[tuple[str, list[str]]] = []
+    for line in head:
+        if (line[:1] not in (" ", "-", "") and ":" in line) or not blocks:
+            blocks.append((line.partition(":")[0].strip(), [line]))
+        else:
+            blocks[-1][1].append(line)
+    return blocks

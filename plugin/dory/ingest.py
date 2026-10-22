@@ -10,13 +10,14 @@ import shutil
 import subprocess
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from dory import baseline, queue, scopes
+from dory import baseline, context, queue, scopes
 from dory.config import Config
 from dory.project import Project, project_for_root
+from dory.secrets import redact
 from dory.state import StateDir
 from dory.vault import rules_text, snapshot
 from dory.worker import Outcome, Process, prepare
@@ -24,17 +25,17 @@ from dory.worker import Outcome, Process, prepare
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 MAX_TURNS = 40
 MAX_BUDGET_USD = 1.0
-# No hooks of the user's setup in the run; the user's project notes and private folder stay
-# theirs. Patterns without a leading slash are relative to the run's working directory, the
-# vault; a Read rule also holds for Grep and Glob.
+# No hooks of the user's setup in the run; the user's project notes and library stay theirs. The
+# library entries the run may read are copies in the bundle. Patterns without a leading slash are
+# relative to the run's working directory, the vault; a Read rule also holds for Grep and Glob.
 WORKER_SETTINGS = json.dumps(
     {
         "disableAllHooks": True,
         "permissions": {
             "deny": [
-                "Read(private/**)",
-                "Edit(private/**)",
-                "Write(private/**)",
+                "Read(library/**)",
+                "Edit(library/**)",
+                "Write(library/**)",
                 "Edit(projects/*/notes/**)",
                 "Write(projects/*/notes/**)",
             ]
@@ -164,11 +165,13 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
         baseline.create_skeletons(config.vault, project, date.today())
         domain = scopes.project_domain(config.vault, project)
         kept = baseline.baseline_dir(state, entry.id)
+        files = _task_files(config.vault, project)
+        _copy_library(config.vault, bundle.parent, files.library)
         _write_task(
             bundle.parent,
             entry,
             SessionTarget(note, project, domain, draft),
-            _task_files(config.vault, project),
+            files,
             config.language,
         )
         (bundle.parent / "rules.md").write_text(rules_text())
@@ -224,6 +227,7 @@ class TaskFiles:
     knowledge: Path | None
     notes: list[tuple[Path, str]]  # every file in `notes/`, with its type
     user_notes: list[Path]
+    library: list[Path] = field(default_factory=list)  # entries a session start here may load
 
 
 def _task_files(vault: Path, project: Project | None) -> TaskFiles:
@@ -231,7 +235,21 @@ def _task_files(vault: Path, project: Project | None) -> TaskFiles:
         knowledge=scopes.knowledge_file(project),
         notes=[(path, scopes.file_type(vault / path)) for path in scopes.notes_folder_files(vault)],
         user_notes=scopes.project_notes(vault, project),
+        library=context.library_files(vault, project),
     )
+
+
+def _copy_library(vault: Path, bundle_dir: Path, entries: list[Path]) -> None:
+    """Redacted copies of the library entries the run may read; it cannot read `library/`."""
+    shutil.rmtree(bundle_dir / scopes.LIBRARY, ignore_errors=True)
+    for relative in entries:
+        try:
+            text = (vault / relative).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        copy = bundle_dir / relative
+        copy.parent.mkdir(parents=True, exist_ok=True)
+        copy.write_text(redact(text))
 
 
 def _write_task(
@@ -254,7 +272,7 @@ def _write_task(
         "stay in English.",
         "",
         f"- Session note: `{note}` (exactly this path, relative to the vault)",
-        *_task_file_lines(files, private=target.domain == "private"),
+        *_task_file_lines(files, bundle_dir, private=target.domain == "private"),
     ]
     if target.draft:
         lines.append(
@@ -283,7 +301,7 @@ def _write_task(
     (bundle_dir / "task.md").write_text("\n".join(lines) + "\n")
 
 
-def _task_file_lines(files: TaskFiles, *, private: bool) -> list[str]:
+def _task_file_lines(files: TaskFiles, bundle_dir: Path, *, private: bool) -> list[str]:
     lines = []
     if files.knowledge:
         lines.append(
@@ -310,9 +328,16 @@ def _task_file_lines(files: TaskFiles, *, private: bool) -> list[str]:
             + ". Nothing they say becomes an entry: a session that only repeats a note adds "
             "nothing."
         )
+    if files.library:
+        lines.append(
+            "- Library entries the user filed, copied from `library/` for reference, read in full "
+            "and never changed: "
+            + ", ".join(f"`{bundle_dir / path}`" for path in files.library)
+            + ". What they say becomes no entry: a session that only repeats one adds nothing."
+        )
     lines += [
-        "- `private/` is the user's folder: you cannot read it, and you never write into it or "
-        "link to it.",
+        "- `library/` is the user's folder: you cannot read it, and you never write into it or "
+        "link to it, not in the text and not in a `library` property.",
         "- Every other file in `projects/` belongs to another project or to an earlier version "
         "of dory: neither read nor write it.",
     ]

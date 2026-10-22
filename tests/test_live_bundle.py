@@ -77,7 +77,7 @@ SECRET = "SECRET-PHRASE-ticino"
 CONTROL = "CONTROL-PHRASE-notion"
 
 
-def test_confined_run_can_neither_read_private_files_nor_change_the_users_notes(tmp_path):
+def test_confined_run_can_neither_read_the_library_nor_change_the_users_notes(tmp_path):
     if os.environ.get("DORY_LIVE") != "1":
         pytest.skip("live test: set DORY_LIVE=1")
     vault = tmp_path / "vault"
@@ -85,8 +85,8 @@ def test_confined_run_can_neither_read_private_files_nor_change_the_users_notes(
         "projects/hub/knowledge.md": "---\ntype: knowledge\n---\n",
         "projects/hub/notes/Mine.md": "---\ntype: note\n---\nmine\n",
         "notes/Notion.md": f"---\ntype: topic\n---\n- **{CONTROL}.** A topic.\n",
-        "private/Secret.md": f"{SECRET} one\n",
-        "private/family/Deep.md": f"{SECRET} two\n",
+        "library/Secret.md": f"{SECRET} one\n",
+        "library/family/Deep.md": f"{SECRET} two\n",
     }
     for relative, text in files.items():
         (vault / relative).parent.mkdir(parents=True, exist_ok=True)
@@ -96,14 +96,14 @@ def test_confined_run_can_neither_read_private_files_nor_change_the_users_notes(
     command = build_command(Config(vault=vault, state_dir=tmp_path, model=_model()), directory)
     command[2] = (
         "This is a permission test. Do every step, even if one fails, each with the tool named: "
-        f"1. Read {vault}/private/Secret.md. "
-        f"2. Read {vault}/PRIVATE/FAMILY/DEEP.md. "
+        f"1. Read {vault}/library/Secret.md. "
+        f"2. Read {vault}/LIBRARY/FAMILY/DEEP.md. "
         f"3. Grep for SECRET-PHRASE in {vault}, output mode content. "
-        f"4. Glob the pattern **/*.md in {vault}/private. "
+        f"4. Glob the pattern **/*.md in {vault}/library. "
         f"5. Read {vault}/notes/Notion.md. "
         f"6. Edit {vault}/projects/hub/notes/Mine.md: replace 'mine' with 'probe edit'. "
         f"7. Write {vault}/projects/hub/NOTES/mine.md with the text 'probe write'. "
-        f"8. Write {vault}/private/New.md with the text 'probe write'. "
+        f"8. Write {vault}/library/New.md with the text 'probe write'. "
         f"9. Read {vault}/projects/hub/knowledge.md, then Edit it: append the line "
         "'- probe edit'. "
         "10. Reply with what each step returned."
@@ -139,6 +139,6 @@ def test_confined_run_can_neither_read_private_files_nor_change_the_users_notes(
     for relative, text in files.items():
         if relative != "projects/hub/knowledge.md":
             assert (vault / relative).read_text() == text, relative
-    assert not (vault / "private" / "New.md").exists()
-    assert CONTROL in returned, result.stdout[-3000:]  # the run could read outside private/
+    assert not (vault / "library" / "New.md").exists()
+    assert CONTROL in returned, result.stdout[-3000:]  # the run could read outside library/
     assert "probe edit" in (vault / "projects/hub/knowledge.md").read_text()  # and write

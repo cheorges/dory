@@ -13,17 +13,18 @@ The notes are plain Markdown in the language you configure (English by default),
 - knowledge that applies beyond the project into a topic file in `notes/` (`notes/Notion.md`). Private matters (family, health, money, your own devices and home network) become no entry anywhere.
 - changes to lists such as the shopping list, if the session touched them
 
-**When a session starts**, a hook gives Claude the project's notes and `knowledge.md`, any private note one of your project notes links, then as many topic files from `notes/` as fit, and the titles of the rest. How much it may load is a level you choose (see [Configuration](#configuration)). A project too large for that gets a summary instead. Recent sessions are not loaded; `/dory:search` finds them.
+**When a session starts**, a hook gives Claude the project's notes and `knowledge.md`, the library entries those notes link, then as many topic files from `notes/` as fit, each with the library entries it links, and the titles of the rest. How much it may load is a level you choose (see [Configuration](#configuration)). A project too large for that gets a summary instead. Recent sessions are not loaded; `/dory:search` finds them.
 
-**After every worker run**, dory compares the vault with its state before the run and lists removed entries, rewritten leads, changes to your notes or to `private/`, and files the run should not have touched in `runs.log`. `dory status` shows today's counts. Nothing of yours is undone automatically; snapshots are the way back.
+**After every worker run**, dory compares the vault with its state before the run and lists removed entries, rewritten leads, changes to your notes or to `library/`, and files the run should not have touched in `runs.log`. `dory status` shows today's counts. Nothing of yours is undone automatically; snapshots are the way back.
 
 ### Commands in Claude Code
 
 | Command | What it does |
 |---|---|
 | `/dory:save` | Queues the running session right away without ending it. When it ends later, only the rest is processed, as part 2. |
-| `/dory:note "how we solved the Loki port"` | Writes a note file into the project's `notes/`. Claude picks a title and writes the content from your request and the session. "remember in general: ..." goes into the matching topic in `notes/`, "buy milk" onto the shopping list. Private things are not written; put them into `private/` yourself. |
-| `/dory:search loki deploy` | Searches the whole vault, `private/` included, and shows each matching entry, note, list or session note with its file. Claude also runs it on its own when you ask about earlier knowledge. |
+| `/dory:note "how we solved the Loki port"` | Writes a note file into the project's `notes/`: what the next session must know. Claude picks a title and writes the content from your request and the session, without asking. Something that has nothing to do with the project goes into the matching topic in `notes/`, "buy milk" onto the shopping list. It never writes into `library/`. |
+| `/dory:library "uv instead of pip, because ..."` | Files knowledge you want to keep in `library/`, in a dialog: Claude proposes the folder, the title, the content with links to the notes it mentions, and the project notes or topic files to link it from, so that it loads where it belongs. Nothing is written before your yes. |
+| `/dory:search loki deploy` | Searches the whole vault, `library/` included, and shows each matching entry, note, list or session note with its file. Claude also runs it on its own when you ask about earlier knowledge. |
 
 ### In the terminal
 
@@ -31,6 +32,8 @@ The notes are plain Markdown in the language you configure (English by default),
 dory status   # queue, failed entries with reason, last error, API equivalent cost, today's checks
 dory retry    # move failed entries back into the queue
 dory add-note --scope project --title "Loki port" "Loki runs on 3200."   # creates a note file; /dory:note runs it
+dory library-write --folder Python --title "Package management" < entry.md   # /dory:library runs it
+dory link --entry "library/Python/Package management.md" notes/Python.md     # adds the entry to the property
 ```
 
 `dory` is in the installed plugin: `~/.claude/plugins/cache/brain/dory/<version>/bin/dory`.
@@ -109,8 +112,9 @@ The share is a maximum; a project with little knowledge loads less. Claude Code 
     Notion.md                                a topic, kept by the worker (type: topic)
     Shopping list.md                         list
     Invoices.md                              register
-  private/
-    Employment contract.md                   yours alone; loads when a project note links it
+  library/
+    Python/
+      Package management.md                  knowledge you filed; loads where a note links it
   sessions/2026/10/
     2026-10-09-1432-ai-assistant-hub-abc12345-1.md
 ```
@@ -138,9 +142,22 @@ updated: 2026-10-21
 - **Overwriting a Notion page deletes the databases embedded in it.** Append blocks instead of replacing the page.
 ```
 
-### Private notes
+### The library
 
-`private/` is your folder. dory never writes into it, and the worker run is denied reading it. To bring a private note into a project's sessions, link it from one of the project's notes, for example `See [[private/Employment contract]]`; a bare `[[Employment contract]]`, an embed or a Markdown link works too. Links inside a private note are not followed. Search covers `private/` because a search is your own request. These limits apply to what dory loads; Claude can still read the vault directly.
+`library/` holds the knowledge you file deliberately, in folders you choose, confidential content included. You write it in Obsidian or with `/dory:library`; `/dory:note` and the worker never write there, and the worker cannot read the folder. An entry loads at session start when a file that loads links it:
+
+- a project note, in its text or in its `library` property: the entry loads in that project's sessions
+- a topic file in `notes/`, in its `library` property only: the entry loads in every session, in every project
+
+```markdown
+---
+type: topic
+library:
+  - "[[library/Python/Package management|Package management]]"
+---
+```
+
+`/dory:library` sets that property through `dory link`. The checks after a worker run put a `library` property back if the run changed it. Links inside a library entry are not followed. The worker gets copies of the entries its session could load, so it does not write the same thing again. Search covers `library/` because a search is your own request. These limits apply to what dory loads; Claude can still read the vault directly.
 
 A project counts as work unless its `knowledge.md` says `domain: private` in the frontmatter. Sessions of a private project write no topic files, since every session lists them.
 
@@ -153,9 +170,13 @@ ls ~/.local/state/dory-brain/snapshots/
 cp ~/.local/state/dory-brain/snapshots/<timestamp>/projects/x/knowledge.md ~/Obsidian/dory-brain/projects/x/
 ```
 
+### Coming from 0.5.0
+
+`private/` is now `library/`. dory does not move the folder, since links to `private/...` would break: rename it to `library` in Obsidian, which updates the links. Until then the session start says that `private/` still holds files. `dory add-note --scope general` is now `--scope notes`.
+
 ### Coming from 0.4.0
 
-The folder `general/` and a project's `notes.md` are no longer loaded, searched or changed. Move what you want to keep into topic files in `notes/` or note files in the project's `notes/`, then delete them. Files in `private/` stay as your private notes. Older single knowledge notes and project overviews in `projects/` are ignored too; keep the overview of a project you marked `domain: private` until its `knowledge.md` exists, or set the domain there yourself.
+The folder `general/` and a project's `notes.md` are no longer loaded, searched or changed. Move what you want to keep into topic files in `notes/` or note files in the project's `notes/`, then delete them. Files in `private/` stay as your own notes; rename the folder to `library` (above). Older single knowledge notes and project overviews in `projects/` are ignored too; keep the overview of a project you marked `domain: private` until its `knowledge.md` exists, or set the domain there yourself.
 
 ## How it works
 
@@ -167,6 +188,7 @@ flowchart LR
     Worker --> Vault[(Obsidian vault)]
     Worker --> Summary[Summary of a large project]
     Note[/dory:note/] --> Vault
+    Library[/dory:library/] --> Vault
     Summary --> Start[Session starts: recall]
     Vault --> Start
     Vault --> Search[/dory:search/]
@@ -176,14 +198,14 @@ The `SessionEnd` hook clones the transcript to `~/.local/state/dory-brain/transc
 
 1. The transcript is condensed to what you and Claude wrote. Tool output, attachments and command wrappers are dropped, secrets are redacted, and lines processed before are skipped.
 2. The vault is snapshotted.
-3. `claude -p` processes the session with the writing rules in `plugin/skills/rules/SKILL.md`. The run is restricted: it sees only the vault and its own input, no CLAUDE.md, settings or other plugins, and it may neither read `private/` nor write your notes.
+3. `claude -p` processes the session with the writing rules in `plugin/skills/rules/SKILL.md`. The run is restricted: it sees only the vault and its own input, no CLAUDE.md, settings or other plugins, and it may neither read `library/` nor write your notes; it gets copies of the library entries its session could load.
 4. The run counts as a success only if the session note exists. On a rate limit or network error the entry is retried later; after three real failures it moves to `failed/`.
 5. dory checks the run against the snapshot: it restores the frontmatter keys that place a file (`type`, `domain`, `paths`) and logs every other change.
 6. After the queue, the worker writes a summary (at most 10,000 tokens) for each project whose files exceed 80 % of the session start's limit. It is stored under `~/.local/state/dory-brain/summaries/`, not in the vault, and rebuilt whenever the project's files change.
 
 A project is a git repository; worktrees belong to their main repository. Sessions outside a repository have no project, and their knowledge goes into topic files or lists in `notes/`.
 
-At session start, the project's notes, the private notes they link and `knowledge.md` load first. If they do not fit, their summary loads with the paths of the full files, or, until a summary exists, the files cut at the limit. Then come the topic files in `notes/`, newest first, each only if it fits whole, and the titles of everything else; a last line counts the titles that did not fit. Outside a project only the topics and titles load.
+At session start, the project's notes, the library entries they link and `knowledge.md` load first. If they do not fit, their summary loads with the paths of the full files, or, until a summary exists, the files cut at the limit. Then come the topic files in `notes/`, newest first, each only if it fits whole together with the library entries it links, and the titles of everything else; a last line counts the titles that did not fit. Outside a project only the topics and titles load.
 
 ## Cost
 

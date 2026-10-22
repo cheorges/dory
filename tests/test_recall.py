@@ -88,8 +88,8 @@ def full_world(vault: Path) -> None:
     in_notes(vault, "Shopping list", "list", "2026-10-19")
     untyped = write(vault, "notes/Untyped.md", "- **An untyped topic.** By the user.\n")
     os.utime(untyped, (OLD, OLD))
-    write(vault, "private/Employment contract.md", "Notice period three months.\n")
-    write(vault, "private/Health.md", "Doctor appointment moved to Friday.\n")
+    write(vault, "library/Employment contract.md", "Notice period three months.\n")
+    write(vault, "library/Health.md", "Doctor appointment moved to Friday.\n")
 
 
 def wait(config: Config, cwd: Path, session_id: str) -> Path:
@@ -143,7 +143,7 @@ def test_a_work_project_loads_its_notes_knowledge_and_topics_and_lists_the_rest(
     assert "## notes/Notion.md\n- **Overwriting a Notion page loses data.** x" in text
     assert titles(text) == ["- Shopping list (list): notes/Shopping list.md"]
     assert "- item" not in text  # a list's content is read when needed
-    for absent in ("type: note", "updated:", "## private/", "Notice period", "Doctor", "Rent"):
+    for absent in ("type: note", "updated:", "## library/", "Notice period", "Doctor", "Rent"):
         assert absent not in text
 
 
@@ -170,44 +170,44 @@ def test_a_topic_that_does_not_fit_whole_is_listed_by_title(world):
     ]
 
 
-def test_a_linked_private_note_loads_once_right_after_the_first_note_that_links_it(world):
+def test_a_linked_library_entry_loads_once_right_after_the_first_note_that_links_it(world):
     config, repos = world
     full_world(config.vault)
-    user_note(config.vault, "A first", "Expenses: see [[private/Employment contract]].\n")
+    user_note(config.vault, "A first", "Expenses: see [[library/Employment contract]].\n")
     user_note(
         config.vault,
         "B second",
         "Again ![[employment contract.md|the contract]] and "
-        "[it](private/Employment%20contract.md).\n",
+        "[it](library/Employment%20contract.md).\n",
     )
-    write(config.vault, "private/Employment contract.md", "Notice period. See [[Health]].\n")
+    write(config.vault, "library/Employment contract.md", "Notice period. See [[Health]].\n")
 
     text = recall(hook(repos["ai-assistant-hub"]), config)
 
     assert headings(text)[1:4] == [
         f"{HUB}/notes/A first.md",
-        "private/Employment contract.md",
+        "library/Employment contract.md",
         f"{HUB}/notes/B second.md",
     ]
-    assert text.count("## private/") == 1
+    assert text.count("## library/") == 1
     assert "Doctor" not in text  # one level only
 
 
-def test_links_in_code_out_of_private_or_into_notes_load_nothing(world, tmp_path):
+def test_links_in_code_out_of_the_library_or_into_notes_load_nothing(world, tmp_path):
     config, repos = world
     full_world(config.vault)
     secret = write(tmp_path, "elsewhere/secret.md", "Outside the vault.\n")
-    (config.vault / "private" / "escape.md").symlink_to(secret)
+    (config.vault / "library" / "escape.md").symlink_to(secret)
     user_note(
         config.vault,
         "Links",
-        "```\n[[private/Health]]\n```\n"
-        "[[private/../notes/Notion]] [[escape]] [[notes/Notion]] [[private/Gone]]\n",
+        "```\n[[library/Health]]\n```\n"
+        "[[library/../notes/Notion]] [[escape]] [[notes/Notion]] [[library/Gone]]\n",
     )
 
     text = recall(hook(repos["ai-assistant-hub"]), config)
 
-    assert "## private/" not in text
+    assert "## library/" not in text
     for absent in ("Doctor", "Outside the vault"):
         assert absent not in text
 
@@ -229,7 +229,7 @@ def test_outside_a_repository_and_in_an_unknown_one_only_the_titles_load(world):
             assert absent not in text
 
 
-def test_a_private_project_loads_its_own_files_and_nothing_unlinked_from_private(world):
+def test_a_private_project_loads_its_own_files_and_nothing_unlinked_from_the_library(world):
     config, repos = world
     full_world(config.vault)
 

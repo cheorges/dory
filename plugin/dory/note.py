@@ -1,10 +1,11 @@
 """/dory:note: the context the skill needs, and `dory add-note`, which creates a note file.
 
 The skill decides where a note belongs and writes its title and content: a new file in the
-project's `notes/`, or, for what applies in general, a new topic file in `notes/`. An
-existing topic file, a list or a register the skill changes itself with Edit, after the snapshot
-`prepare-note` takes. `dory add-note` only ever creates a file, named by its title and with its
-frontmatter, and never overwrites one, a name in other case included.
+project's `notes/`, or, for what has nothing to do with the project, a new topic file in
+`notes/`. An existing topic file, a list or a register the skill changes itself with Edit, after
+the snapshot `prepare-note` takes. `dory add-note` only ever creates a file, named by its title
+and with its frontmatter, and never overwrites one, a name in other case included. `library/` is
+not the skill's: `dory guard` blocks its Write and Edit there, and `/dory:library` files knowledge.
 """
 
 from datetime import date
@@ -16,7 +17,7 @@ from dory.project import Project, detect_project
 from dory.state import StateDir
 from dory.vault import rules_text, snapshot
 
-SCOPE_NAMES = ("project", "general")
+SCOPE_NAMES = ("project", "notes")
 
 
 class NoteError(Exception):
@@ -47,7 +48,7 @@ def prepare_note(config: Config, cwd: Path) -> str:
     )
     if project:
         lines.append(f"- project: {_folder('project', project).as_posix()}/")
-    lines.append("- general: notes/ (a new topic file)")
+    lines.append("- notes: notes/ (a new topic file)")
     if project:
         lines.append("The project's notes:")
         lines += [f"- {path.stem}" for path in scopes.project_notes(vault, project)] or ["- none"]
@@ -65,7 +66,7 @@ def add_note(
 ) -> Path:
     """Create the note file; return its vault-relative path."""
     if scope not in SCOPE_NAMES:
-        raise NoteError(f"unknown scope {scope!r}: use project or general")
+        raise NoteError(f"unknown scope {scope!r}: use project or notes")
     content = text.strip()
     if not content:
         raise NoteError("empty note: nothing to write")
@@ -76,7 +77,7 @@ def add_note(
     state = StateDir(config.state_dir).ensure()
     project = detect_project(cwd, state.projects_file)
     if scope == "project" and project is None:
-        raise NoteError("not in a git repository: use --scope general")
+        raise NoteError("not in a git repository: use --scope notes")
     folder = _folder(scope, project)
     relative = folder / f"{stem}.md"
     day = f"{today or date.today():%Y-%m-%d}"

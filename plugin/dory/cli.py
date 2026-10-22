@@ -7,7 +7,7 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dory import __version__, ingest, note, ops, queue, recall, search, summarize, worker
+from dory import __version__, ingest, library, note, ops, queue, recall, search, summarize, worker
 from dory.config import load_config
 from dory.spawn import spawn_worker
 from dory.state import StateDir
@@ -24,9 +24,17 @@ def main(argv: list[str] | None = None) -> int:
     work.add_argument("--dry-run", action="store_true", help="only write the input bundles")
     commands.add_parser("prepare-note", help="/dory:note: snapshot and context for writing")
     add = commands.add_parser("add-note", help="/dory:note: create a note file with its title")
-    add.add_argument("--scope", required=True, help="project or general")
+    add.add_argument("--scope", required=True, help="project or notes")
     add.add_argument("--title", required=True, help="the note's title, its file name")
     add.add_argument("text", nargs="*", help="the note; read from stdin when left out")
+    commands.add_parser("guard", help="/dory:note hook: block Write and Edit in library/")
+    commands.add_parser("library-context", help="/dory:library: snapshot and context")
+    write = commands.add_parser("library-write", help="/dory:library: create or replace an entry")
+    write.add_argument("--folder", default="", help="folder below library/, at most two levels")
+    write.add_argument("--title", required=True, help="the entry's title, its file name")
+    linking = commands.add_parser("link", help="/dory:library: link an entry from a note or topic")
+    linking.add_argument("--entry", required=True, help="the entry, e.g. library/Python/uv")
+    linking.add_argument("files", nargs="+", help="project notes or topic files in notes/")
     find = commands.add_parser("search", help="/dory:search: find notes in the vault")
     find.add_argument("query", nargs="+")
     commands.add_parser("status", help="queue, failures, last error and costs")
@@ -45,6 +53,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "add-note":
         text = " ".join(args.text) if args.text else sys.stdin.read()
         return _add_note(args.scope, args.title, text)
+    if args.command == "guard":
+        return _guard(sys.stdin.read())
+    if args.command == "library-context":
+        print(library.library_context(load_config(), Path.cwd()))
+        return 0
+    if args.command == "library-write":
+        return _library_write(args.folder, args.title, sys.stdin.read())
+    if args.command == "link":
+        return _link(args.entry, args.files)
     if args.command == "search":
         print(search.search(load_config(), Path.cwd(), " ".join(args.query)))
         return 0
@@ -64,6 +81,43 @@ def _add_note(scope: str, title: str, text: str) -> int:
         print(f"dory add-note: {error}", file=sys.stderr)
         return 1
     print(f"Noted in {written.as_posix()} (vault {config.vault})")
+    return 0
+
+
+def _guard(raw: str) -> int:
+    """Exit 2 blocks the tool call and shows the message to Claude. A guard that fails lets the
+    call through: it stays active for the rest of the session and must not block all writes."""
+    try:
+        message = library.guard(load_config(), raw)
+    except Exception as error:
+        _log_hook_error("guard", error)
+        return 0
+    if message:
+        print(message, file=sys.stderr)
+        return 2
+    return 0
+
+
+def _library_write(folder: str, title: str, text: str) -> int:
+    config = load_config()
+    try:
+        written, new = library.library_write(config, folder, title, text)
+    except library.LibraryError as error:
+        print(f"dory library-write: {error}", file=sys.stderr)
+        return 1
+    print(f"{'Created' if new else 'Replaced'} {written.as_posix()} (vault {config.vault})")
+    return 0
+
+
+def _link(entry: str, files: list[str]) -> int:
+    config = load_config()
+    try:
+        done = library.link(config, entry, files)
+    except library.LibraryError as error:
+        print(f"dory link: {error}", file=sys.stderr)
+        return 1
+    for relative, changed in done:
+        print(f"{'Linked from' if changed else 'Already linked from'} {relative.as_posix()}")
     return 0
 
 

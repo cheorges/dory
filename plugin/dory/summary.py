@@ -1,11 +1,11 @@
 """Summaries of a context, made by the worker and loaded by the session start.
 
-A context is what one session start loads in full: a known project's notes, the private notes
+A context is what one session start loads in full: a known project's notes, the library entries
 they link and its `knowledge.md` (`context.loaded_files`). Its name is `project-<name>`; the
 names `_general` and `_outside` of earlier versions name no context any more, since nothing
 loads in full outside a known project. The summary lives in `<state>/summaries/<context>.md`
-with the hash of the text it was made from, the domain and the linked private notes in its
-header; it is used only for the same domain and the same linked notes, so a private note's
+with the hash of the text it was made from, the domain and the linked library entries in its
+header; it is used only for the same domain and the same linked entries, so a library entry's
 content never outlives its link. A session start that needs a new one touches
 `<context>.wanted`.
 """
@@ -40,13 +40,15 @@ class Context:
 
     @property
     def domain(self) -> str:
-        """Private for a private project or one that loads a private note; never crossed."""
+        """Private for a private project or one that loads a library entry; never crossed."""
         return "private" if self.private_project or self.linked else "work"
 
     @property
     def linked(self) -> tuple[str, ...]:
-        """The private notes the context loads, as their paths."""
-        return tuple(sorted(path.as_posix() for path in self.files if path.parts[0] == "private"))
+        """The library entries the context loads, as their paths."""
+        return tuple(
+            sorted(path.as_posix() for path in self.files if path.parts[0] == scopes.LIBRARY)
+        )
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,7 @@ class Summary:
     linked: tuple[str, ...] = ()
 
     def fits(self, ctx: Context) -> bool:
-        """Made for the context's domain and the private notes it loads now."""
+        """Made for the context's domain and the library entries it loads now."""
         return self.domain == ctx.domain and self.linked == ctx.linked
 
 

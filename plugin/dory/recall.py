@@ -4,10 +4,11 @@ The session start reads the files of its context and the titles in `notes/`, not
 the vault. In this order:
 1. header and project line, the `summary` of the project's `knowledge.md`
 2. sessions of this project still waiting in the queue: their knowledge is not in the vault yet
-3. in a known project, its notes by name, each followed by the private notes it links first,
+3. in a known project, its notes by name, each followed by the library entries it links first,
    then its `knowledge.md` (`context.loaded_files`), each under its path with its own headings
    one level down
-4. the topic files in `notes/`, most recently updated first, each in full while it fits whole
+4. the topic files in `notes/`, most recently updated first, each in full while it fits whole,
+   together with the library entries its `library` property links and nothing loaded yet
 5. one line for every other file in `notes/`, the lists and registers and the topics that did
    not fit: Claude reads a file when the session touches its subject
 
@@ -17,9 +18,10 @@ keep their room first, and room for the line that closes a cut list of titles. W
 do not fit, the summary the worker made of them loads instead once they exceed the summary's
 target, followed by their paths; a missing or stale summary is asked for with a mark and a
 worker start, and the session start never waits for it. Without a usable summary the files are
-cut in load order with a marker. The topics and then the titles fill what is left. In a work
-project nothing from `private/` appears unless one of the user's project notes links it. The
-boundary filters what is injected, it is no access control: Claude can still read the vault.
+cut in load order with a marker. The topics and then the titles fill what is left. Nothing from
+`library/` appears unless a project note or a topic file links it. The boundary filters what is
+injected, it is no access control: Claude can still read the vault. A `private/` folder with
+files, from before 0.6.0, gets one line asking the user to rename it.
 """
 
 import contextlib
@@ -41,6 +43,11 @@ STALE = "(The files changed since this summary was made; read them for what is n
 PATHS_TITLE = "## The files in full (read if needed)"
 NOTES_TITLE = "## Notes without a project (read a file when the session touches its subject)"
 LEFT_OUT = "- {count} more in notes/: list the folder for them"
+OLD_FOLDER = (
+    "## Tell the user\n"
+    "dory reads `library/` since 0.6.0, and `private/` holds {count} files. Rename the folder "
+    "to `library` in Obsidian, which updates the links to it."
+)
 SESSION_FILE_MAX_AGE_DAYS = 30
 
 
@@ -77,9 +84,13 @@ def recall(hook: dict, config: Config) -> str:
     vault = config.vault
     project = lookup_project(cwd, state.projects_file)  # never writes: hooks run in parallel
     ctx = summary.context_for(vault, project)
-    lead = [_project_section(project, vault), _queue_section(project, cwd, state)]
+    lead = [
+        _project_section(project, vault),
+        _old_folder_section(vault),
+        _queue_section(project, cwd, state),
+    ]
     texts = context.file_texts(vault, ctx.files)
-    listing = _notes_listing(vault)
+    listing = _notes_listing(vault, ctx.files)
     if not texts and not listing and not any(_render(section) for section in lead):
         return ""
     head = _Section("", [HEADER, f"Vault: {vault}"])
@@ -133,6 +144,11 @@ def _project_section(project: Project | None, vault: Path) -> _Section:
     return _Section(f"{title}\n{summary}", [], bare=True)
 
 
+def _old_folder_section(vault: Path) -> _Section:
+    count = sum(1 for path in (vault / scopes.OLD_PRIVATE).rglob("*.md") if path.is_file())
+    return _Section(OLD_FOLDER.format(count=count), [], bare=True) if count else _Section("", [])
+
+
 def _queue_section(project: Project | None, cwd: Path, state: StateDir) -> _Section:
     waiting = []
     for path in queue.pending(state):
@@ -155,14 +171,19 @@ def _queue_section(project: Project | None, cwd: Path, state: StateDir) -> _Sect
 
 @dataclass(frozen=True)
 class _Listed:
-    """A file in `notes/`: its title line, and for a topic its text as it loads in full."""
+    """A file in `notes/`: its title line, and for a topic its text as it loads in full,
+    followed by the library entries it links."""
 
     line: str
     block: str  # "" for a list or register, and for an empty topic
 
 
-def _notes_listing(vault: Path) -> list[_Listed]:
-    """Every file in `notes/`, most recently updated first; a list or register says so."""
+def _notes_listing(vault: Path, loaded: list[Path]) -> list[_Listed]:
+    """Every file in `notes/`, most recently updated first; a list or register says so.
+
+    A library entry two topics link comes with the first one in this order; one the project's
+    files load already comes with none.
+    """
     found = []
     for relative in scopes.notes_folder_files(vault):
         path = vault / relative
@@ -173,10 +194,19 @@ def _notes_listing(vault: Path) -> list[_Listed]:
         block = ""
         if not label and (text := context.file_texts(vault, [relative]).get(relative)):
             block = f"{context.heading(relative)}\n{text}"
-        found.append((_updated(path, meta), _Listed(line, block)))
+        entries = [] if label else context.topic_entries(vault, relative)
+        found.append((_updated(path, meta), _Listed(line, block), entries))
     found.sort(key=lambda item: item[1].line)
     found.sort(key=lambda item: item[0], reverse=True)
-    return [listed for _, listed in found]
+    seen = set(loaded)
+    listing = []
+    for _, listed, entries in found:
+        new = [entry for entry in entries if entry not in seen]
+        seen.update(new)
+        if listed.block and (linked := context.text(context.file_texts(vault, new))):
+            listed = _Listed(listed.line, f"{listed.block}\n\n{linked}")
+        listing.append(listed)
+    return listing
 
 
 def _updated(path: Path, meta: dict[str, object]) -> str:

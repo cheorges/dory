@@ -2,14 +2,14 @@
 
 Each entry of a project's `knowledge.md` and of a topic file in `notes/` is scored on its own
 (with the parser of the post-run checks), so a hit shows the statement, not a file that holds
-twenty. The user's project notes, private notes, lists, registers and session notes count as one
+twenty. The user's project notes, library entries, lists, registers and session notes count as one
 document each. Every word of the query is matched as a substring (case-insensitive), so "deploy"
 finds "Deployen". A hit in an entry's lead or a note's title weighs most, then tags and file
 name, then the text; hits that match more words come first. Files an earlier version of dory
 wrote (`general/`, a project's `notes.md`, single notes in a project folder) are neither shown
 nor searched.
 
-A search is the user's own request, so it covers the whole vault in every session, `private/`
+A search is the user's own request, so it covers the whole vault in every session, `library/`
 included.
 """
 
@@ -62,8 +62,8 @@ def _candidates(vault: Path) -> list[Candidate]:
             found += _document(vault, vault / relative, kind)
     for path in sorted((vault / "projects").glob(f"*/{scopes.NOTES_FOLDER}/*.md")):
         found += _document(vault, path, "note")
-    for path in sorted((vault / scopes.PRIVATE).rglob("*.md")):
-        found += _document(vault, path, "private note")
+    for path in sorted((vault / scopes.LIBRARY).rglob("*.md")):
+        found += _document(vault, path, "library entry")
     for path in sorted((vault / "sessions").rglob("*.md")):
         found += _document(vault, path, "session")
     return found

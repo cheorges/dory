@@ -2,7 +2,7 @@
 
 ## Status
 
-In Progress: all stories built on `feat/notes-as-files` (2026-10-21), not committed
+Done (2026-10-21): released as 0.5.0. `private/` became `library/` in 0.6.0, and decision 7 and the section on `private/` are replaced by [Record 006](006-library.md).
 
 ---
 
@@ -125,6 +125,8 @@ Option B. For `general/` this replaces the decision of 2026-10-15 that the sessi
 Option A.
 
 ### Decision 7: `private/`
+
+> Replaced by [Record 006](006-library.md): the folder is `library/`, `/dory:library` writes into it, and topic files link entries too.
 
 #### Option A: Written by dory (0.4.0)
 - **Approach:** The worker keeps `private/knowledge.md`, `/dory:note` writes `private/notes.md`; both load in private contexts.
@@ -258,6 +260,8 @@ updated: 2026-10-21
 - **Lists and registers** keep their format and rules: items added and removed as asked, registers one dated line per item. `type: list` or `type: register` tells them apart from topics. A new list is named by its title like any file; the list example in the rules loses its `domain`.
 
 ### `private/`
+
+> Replaced by [Record 006](006-library.md).
 
 - The worker creates the empty folder before its run when it is missing and writes nothing else under it; no other part of dory writes there. The user writes any Markdown there, with any frontmatter and in subfolders.
 - **Links that load a private note.** dory reads the links in a loaded project note file, outside fenced and inline code, in these forms: `[[target]]`, `![[target]]`, each with an optional `|alias` and `#heading`, and with or without `.md`; and Markdown links `[text](target)` whose target is percent-decoded. A target with a path is taken from the vault root (`private/Employment contract`); a bare name (`Employment contract`) matches a file of that name under `private/`, searched recursively and without case, the first by path if several. Each target is resolved to its real path, symlinks included, and loads only if that path lies inside `private/`, so `[[private/../notes/x]]` or a symlink out of the folder loads nothing. One level: links inside a private note are not followed. A note loads once, however many files link it. Links to anything outside `private/` are not followed; Claude can read those files itself.

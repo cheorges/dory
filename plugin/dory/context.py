@@ -1,6 +1,6 @@
 """The text of a context: what a session start loads in full and the worker summarizes.
 
-A known project's context is its notes, by name, each followed by the private notes it links
+A known project's context is its notes, by name, each followed by the library entries it links
 first, then its `knowledge.md`; outside a known project nothing loads in full. Both sides build
 the text here, so a summary's hash and the session start's check describe the same text: the
 file bodies without frontmatter, in load order, each under its vault path with its own headings
@@ -30,8 +30,22 @@ def loaded_files(vault: Path, project: Project | None) -> list[Path]:
             text = (vault / note).read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue  # the session start reports nothing it cannot read
-        files += [linked for linked in links.private_notes(vault, text) if linked not in files]
+        files += [linked for linked in links.library_entries(vault, text) if linked not in files]
     return [*files, knowledge]
+
+
+def topic_entries(vault: Path, topic: Path) -> list[Path]:
+    """The library entries a topic file in `notes/` links in its `library` property."""
+    return links.linked_by_property(vault, vault / topic)
+
+
+def library_files(vault: Path, project: Project | None) -> list[Path]:
+    """Every library entry a session start in `project` may load: from its notes and topics."""
+    found = [path for path in loaded_files(vault, project) if path.parts[0] == scopes.LIBRARY]
+    for topic in scopes.notes_folder_files(vault):
+        if scopes.file_type(vault / topic) == "topic":
+            found += [path for path in topic_entries(vault, topic) if path not in found]
+    return found
 
 
 def file_texts(vault: Path, files: list[Path]) -> dict[Path, str]:
