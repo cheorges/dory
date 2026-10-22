@@ -2,6 +2,14 @@
 
 All notable changes to dory are listed here. Versions follow [Semantic Versioning](https://semver.org/); the version lives in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py`, and a test keeps them in sync.
 
+## 0.6.0 (2026-10-22)
+
+The session start may take a share of the context window you choose, instead of a fixed 1,500 tokens, and topics in `notes/` load in full when there is room.
+
+- **Three levels.** `context = "lean"` (5 % of the window, the default), `"balanced"` (10 %) or `"rich"` (15 %). The window comes from `context_window`, 200,000 tokens by default: Claude Code does not tell a hook which model a session uses. Set it to the smallest window you work with, e.g. `context_window = 1000000`. `recall_budget_tokens` still sets an exact limit and then wins. With the defaults the start may take 10,000 tokens, more than six times as much as before.
+- **Topics in full.** After the project's files, each topic file in `notes/` loads whole, most recently updated first, as long as it fits; the rest, and every list and register, stays a title line.
+- **Summaries are capped.** A project still gets a summary once its files exceed 80 % of the limit, but a summary is at most 10,000 tokens. A change of level or window makes existing summaries stale; the worker rebuilds them.
+
 ## 0.5.0 (2026-10-21)
 
 Your notes become files with a title, everything without a project moves into `notes/`, and `private/` becomes your own folder that dory reads only through your links. The update does not migrate notes 0.4.0 wrote; see the last points.
