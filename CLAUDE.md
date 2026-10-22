@@ -14,13 +14,13 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Test 0.9.0 in daily use | Open | Install 0.9.0, set the dory options in `/config` (context window 1000000 if the sessions run with 1M windows), and `/reload-plugins` in every open window. The vault and the state's snapshots, transcripts, bundles and summaries were emptied on 2026-10-22, so everything in it comes from 0.7.0 on. Watch: topic files in `notes/` (title, one subject each, no duplicates), the user's notes untouched, `/dory:library` (proposals, links, entries loading where linked), `dory status` for unexpected changes, and how much the session start loads |
+| Test 0.9.0 in daily use | Open | Installed on the author's machine and all five options set in Claude Code on 2026-10-22 (vault, German, sonnet, lean, 200000; window 1000000 if the sessions run with 1M windows); the vault and the state's snapshots, transcripts, bundles and summaries were emptied the same day. Watch: the dory rows in `/config`, topic files in `notes/` (title, one subject each, no duplicates), the user's notes untouched, `/dory:library` (proposals, links, entries loading where linked), `dory status` for unexpected changes, and how much the session start loads |
 
 **Legend:** Open | Designed | In Progress | Done
 
 Records 001 to 007 are released; versions are in [CHANGELOG.md](CHANGELOG.md). A release tag sits on the commit on `main` that releases it (the merge commit of its pull request, or the release commit itself when it went directly on `main`, as 0.7.0 did).
 
-**Next Step:** The steps of "Test 0.9.0 in daily use". Releasing: while dory is at 0.x, every release raises the minor version (0.9.0, 0.10.0), never the patch version; bump it in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request with a merge commit, tag `vX.Y.Z` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
+**Next Step:** Restart Claude Code, then work as usual and check what "Test 0.9.0 in daily use" lists. Releasing: while dory is at 0.x, every release raises the minor version (0.9.0, 0.10.0), never the patch version; bump it in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request with a merge commit, tag `vX.Y.Z` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
 
 ### Future
 
@@ -36,7 +36,7 @@ Records 001 to 007 are released; versions are in [CHANGELOG.md](CHANGELOG.md). A
 
 | Date | Decision | Why |
 |------|----------|-----|
-| 2026-10-11 | Worker model stays `sonnet` (Haiku as a config option) | Haiku passed all 7 live checks at 1/15 of the cost; the user keeps a quality margin for complex sessions |
+| 2026-10-11 | Worker model stays `sonnet` by default (`haiku` and, since 0.8.0, `opus` selectable) | Haiku passed all 7 live checks at 1/15 of the cost; the user keeps a quality margin for complex sessions |
 | 2026-10-11 | Repository public and in English; note language configurable (`language`, default English), note headings always English | Public use; the recall reads the frontmatter keys, and the worker finds existing sections by their English names, so neither can depend on the language |
 | 2026-10-12 | Apache 2.0 with a NOTICE file | Free use, also commercial; redistributions must credit the author |
 | 2026-10-12 | Public history starts fresh with the 0.1.0 commits; the old history exists only on local `backup/*` branches | The old commits carried German text and customer names |
@@ -71,6 +71,7 @@ See [Record 001](docs/records/001-second-brain.md) and [the guide](docs/guide.md
 - **Capture:** the `SessionEnd` hook puts a transcript copy into a queue; manually also with `/dory:save`
 - **Processing:** a background worker drains the queue, assigns the session to a project and edits the entries of the project's `knowledge.md` and of the topic files in `notes/`; its settings deny it `library/` and the user's notes, and the library entries its session could load come as copies in the bundle; dory's code checks every run against a baseline of the vault (`baseline.py`), and after the queue the worker writes a summary of every project over the limit (`summarize.py`)
 - **Recall:** the `SessionStart` hook loads the project line, in a known project its notes (each followed by the library entries it links, `links.py`) and `knowledge.md`, or their summary over the limit, then the topic files in `notes/` that fit whole, each with the library entries its `library` property links, and the titles of the rest, and a pointer to sessions still in the queue; the limit is the level's share of `context_window` (`summary.limit_tokens`); a project is private only when the user sets `domain: private` in its `knowledge.md`
+- **Settings:** `config.load_config` takes the plugin's `userConfig` options from Claude Code's `settings.json` (`pluginConfigs`), the `CLAUDE_PLUGIN_OPTION_*` variables where the file has none, then `~/.config/dory-brain/config.toml`, then the defaults
 - **Commands:** `/dory:save`, `/dory:note "..."` (a note file or a topic entry; new files through `dory add-note`; a skill hook running `dory guard` blocks Write and Edit under `library/`), `/dory:library "..."` (a dialog; writes only through `dory library-write` and `dory link`), `/dory:search` (the whole vault, `library/` included)
 
 ---
