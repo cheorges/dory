@@ -7,17 +7,19 @@ the vault. In this order:
 3. in a known project, its notes by name, each followed by the private notes it links first,
    then its `knowledge.md` (`context.loaded_files`), each under its path with its own headings
    one level down
-4. one line per file in `notes/`, topics, lists and registers, most recently updated first:
-   Claude reads a file when the session touches its subject
+4. the topic files in `notes/`, most recently updated first, each in full while it fits whole
+5. one line for every other file in `notes/`, the lists and registers and the topics that did
+   not fit: Claude reads a file when the session touches its subject
 
-The limit `recall_budget_tokens` covers the whole text. Header, project line and queue lines
+The limit (`summary.limit_tokens`: the configured share of the context window) covers the
+whole text. Header, project line and queue lines
 keep their room first, and room for the line that closes a cut list of titles. When the files
 do not fit, the summary the worker made of them loads instead once they exceed the summary's
 target, followed by their paths; a missing or stale summary is asked for with a mark and a
 worker start, and the session start never waits for it. Without a usable summary the files are
-cut in load order with a marker. The titles fill what is left. In a work project nothing from
-`private/` appears unless one of the user's project notes links it. The boundary filters what is
-injected, it is no access control: Claude can still read the vault.
+cut in load order with a marker. The topics and then the titles fill what is left. In a work
+project nothing from `private/` appears unless one of the user's project notes links it. The
+boundary filters what is injected, it is no access control: Claude can still read the vault.
 """
 
 import contextlib
@@ -77,24 +79,26 @@ def recall(hook: dict, config: Config) -> str:
     ctx = summary.context_for(vault, project)
     lead = [_project_section(project, vault), _queue_section(project, cwd, state)]
     texts = context.file_texts(vault, ctx.files)
-    notes = _notes_section(vault)
-    if not texts and not any(_render(section) for section in (*lead, notes)):
+    listing = _notes_listing(vault)
+    if not texts and not listing and not any(_render(section) for section in lead):
         return ""
     head = _Section("", [HEADER, f"Vault: {vault}"])
     files_text = context.text(texts)
     front = [_render(head), *map(_render, lead)]
-    whole = "\n\n".join(block for block in [*front, files_text, _render(notes)] if block)
+    topics = [item.block for item in listing if item.block]
+    titles = _render(_Section(NOTES_TITLE, [item.line for item in listing if not item.block]))
+    whole = "\n\n".join(block for block in [*front, files_text, *topics, titles] if block)
     limit = summary.limit_chars(config)
     if len(whole) <= limit:
         return whole
     files = [_Section(context.heading(path), text.splitlines()) for path, text in texts.items()]
     paths: list[_Section] = []
     within = "\n\n".join(block for block in [*front, files_text] if block)
-    if len(within) > _Budget(limit - _reserve(notes)).left:  # the files themselves do not fit
+    if len(within) > _Budget(limit - _reserve(listing)).left:  # the files themselves do not fit
         if summary.needs_summary(files_text, config):
             files = _summary_or_files(state, ctx, files_text, config, files)
         paths = [_Section(PATHS_TITLE, [f"- {path.as_posix()}" for path in texts])]
-    return _fit([head, *lead], files, paths, notes, limit)
+    return _fit([head, *lead], files, paths, listing, limit)
 
 
 def hook_output(context: str) -> str:
@@ -149,7 +153,15 @@ def _queue_section(project: Project | None, cwd: Path, state: StateDir) -> _Sect
     return _Section("## Not processed yet (read the transcript if needed)", waiting)
 
 
-def _notes_section(vault: Path) -> _Section:
+@dataclass(frozen=True)
+class _Listed:
+    """A file in `notes/`: its title line, and for a topic its text as it loads in full."""
+
+    line: str
+    block: str  # "" for a list or register, and for an empty topic
+
+
+def _notes_listing(vault: Path) -> list[_Listed]:
     """Every file in `notes/`, most recently updated first; a list or register says so."""
     found = []
     for relative in scopes.notes_folder_files(vault):
@@ -157,10 +169,14 @@ def _notes_section(vault: Path) -> _Section:
         meta = read_frontmatter(path)
         kind = str(meta.get("type", ""))
         label = f" ({kind})" if kind in scopes.LIST_TYPES else ""
-        found.append((_updated(path, meta), f"- {relative.stem}{label}: {relative.as_posix()}"))
-    found.sort(key=lambda item: item[1])
+        line = f"- {relative.stem}{label}: {relative.as_posix()}"
+        block = ""
+        if not label and (text := context.file_texts(vault, [relative]).get(relative)):
+            block = f"{context.heading(relative)}\n{text}"
+        found.append((_updated(path, meta), _Listed(line, block)))
+    found.sort(key=lambda item: item[1].line)
     found.sort(key=lambda item: item[0], reverse=True)
-    return _Section(NOTES_TITLE, [line for _, line in found])
+    return [listed for _, listed in found]
 
 
 def _updated(path: Path, meta: dict[str, object]) -> str:
@@ -197,15 +213,16 @@ def _fit(
     front: list[_Section],
     body: list[_Section],
     paths: list[_Section],
-    notes: _Section,
+    listing: list[_Listed],
     limit: int,
 ) -> str:
     """Front and paths take their room first, with room kept for the titles' heading and
-    closing line; the files fill what is left, line by line, and the titles get the rest.
+    closing line; the files fill what is left, line by line; each topic then loads whole while
+    it fits, and the titles of the rest get what remains.
 
     The files stop at the first line that does not fit, and nothing later fills the gap.
     """
-    reserve = _reserve(notes)
+    reserve = _reserve(listing)
     budget = _Budget(limit - reserve)
     first = _fill(front, budget)
     listed = _fill(paths, budget)
@@ -220,16 +237,23 @@ def _fit(
             break
     cut = budget.cut
     left = budget.left + reserve + (0 if cut else len(CUT_MARKER) + 2)
-    titles = _fill_titles(notes, left)
-    blocks = [*first, *loaded, *([CUT_MARKER] if cut else []), *listed, titles]
+    topics, rest = [], []
+    for item in listing:
+        if item.block and len(item.block) + 2 + reserve <= left:
+            topics.append(item.block)
+            left -= len(item.block) + 2
+        else:
+            rest.append(item.line)
+    titles = _fill_titles(_Section(NOTES_TITLE, rest), left)
+    blocks = [*first, *loaded, *([CUT_MARKER] if cut else []), *listed, *topics, titles]
     return "\n\n".join(block for block in blocks if block)
 
 
-def _reserve(notes: _Section) -> int:
-    """Room the titles' heading and closing line keep against the files."""
-    if not notes.entries:
+def _reserve(listing: list[_Listed]) -> int:
+    """Room the titles' heading and closing line keep against the files and topics."""
+    if not listing:
         return 0
-    return len(notes.title) + len(LEFT_OUT.format(count=len(notes.entries))) + 3
+    return len(NOTES_TITLE) + len(LEFT_OUT.format(count=len(listing))) + 3
 
 
 def _fill_titles(notes: _Section, left: int) -> str:

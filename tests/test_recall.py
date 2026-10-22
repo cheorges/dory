@@ -116,7 +116,7 @@ def titles(text: str) -> list[str]:
     return text.split(NOTES_TITLE, 1)[1].strip("\n").splitlines()
 
 
-def test_a_work_project_loads_its_notes_and_knowledge_and_lists_the_titles_in_notes(world):
+def test_a_work_project_loads_its_notes_knowledge_and_topics_and_lists_the_rest(world):
     config, repos = world
     full_world(config.vault)
 
@@ -128,6 +128,9 @@ def test_a_work_project_loads_its_notes_and_knowledge_and_lists_the_titles_in_no
         f"{HUB}/notes/Loki and Grafana.md",
         f"{HUB}/notes/Release steps.md",
         f"{HUB}/knowledge.md",
+        "notes/uv.md",
+        "notes/Notion.md",
+        "notes/Untyped.md",
         NOTES_HEADING,
     ]
     assert f"## {HUB}/notes/Loki and Grafana.md\nLoki port 3100 clashes with Grafana." in text
@@ -137,15 +140,34 @@ def test_a_work_project_loads_its_notes_and_knowledge_and_lists_the_titles_in_no
         "### Facts\n- **The customer VMs reach the internet only through port 3128.** Proxy."
     ) in text
     assert "# no install step\n" in text  # a comment in a code block is no heading
-    assert titles(text) == [
-        "- uv: notes/uv.md",
-        "- Shopping list (list): notes/Shopping list.md",
-        "- Notion: notes/Notion.md",
-        "- Untyped: notes/Untyped.md",
-    ]
-    assert "Overwriting a Notion page" not in text  # a topic's content is read when needed
+    assert "## notes/Notion.md\n- **Overwriting a Notion page loses data.** x" in text
+    assert titles(text) == ["- Shopping list (list): notes/Shopping list.md"]
+    assert "- item" not in text  # a list's content is read when needed
     for absent in ("type: note", "updated:", "## private/", "Notice period", "Doctor", "Rent"):
         assert absent not in text
+
+
+def test_a_topic_that_does_not_fit_whole_is_listed_by_title(world):
+    config, repos = world
+    knowledge(config.vault, HUB, "## Facts\n- **Small.** x\n", summary="KoliChat")
+    in_notes(
+        config.vault, "Recent", "topic", "2026-10-21", "- **Recent fits.** " + "r" * 200 + "\n"
+    )
+    in_notes(
+        config.vault, "Older", "topic", "2026-10-20", "- **Older is long.** " + "o" * 3000 + "\n"
+    )
+    in_notes(config.vault, "Shopping list", "list", "2026-10-19")
+    small = Config(vault=config.vault, state_dir=config.state_dir, recall_budget_tokens=500)
+
+    text = recall(hook(repos["ai-assistant-hub"]), small)
+
+    assert len(text) <= 500 * 4
+    assert "## notes/Recent.md\n- **Recent fits.**" in text
+    assert "Older is long" not in text
+    assert titles(text) == [
+        "- Older: notes/Older.md",
+        "- Shopping list (list): notes/Shopping list.md",
+    ]
 
 
 def test_a_linked_private_note_loads_once_right_after_the_first_note_that_links_it(world):
@@ -186,7 +208,7 @@ def test_links_in_code_out_of_private_or_into_notes_load_nothing(world, tmp_path
     text = recall(hook(repos["ai-assistant-hub"]), config)
 
     assert "## private/" not in text
-    for absent in ("Doctor", "Outside the vault", "Overwriting a Notion page"):
+    for absent in ("Doctor", "Outside the vault"):
         assert absent not in text
 
 
@@ -196,7 +218,12 @@ def test_outside_a_repository_and_in_an_unknown_one_only_the_titles_load(world):
 
     for cwd in (repos["home"], repos["unknown"]):
         text = recall(hook(cwd), config)
-        assert headings(text) == [NOTES_HEADING]
+        assert headings(text) == [
+            "notes/uv.md",
+            "notes/Notion.md",
+            "notes/Untyped.md",
+            NOTES_HEADING,
+        ]
         assert "- Shopping list (list): notes/Shopping list.md" in text
         for absent in ("## Project", "Loki", "Rent", "Notice period", "Doctor"):
             assert absent not in text
@@ -208,7 +235,7 @@ def test_a_private_project_loads_its_own_files_and_nothing_unlinked_from_private
 
     text = recall(hook(repos["haushalt"]), config)
 
-    assert headings(text) == ["Project: haushalt", "projects/haushalt/knowledge.md", NOTES_HEADING]
+    assert headings(text)[:2] == ["Project: haushalt", "projects/haushalt/knowledge.md"]
     assert "Rent is due" in text
     assert "Doctor" not in text and "Notice period" not in text
 
@@ -217,7 +244,7 @@ def test_titles_that_do_not_fit_end_with_a_line_that_counts_the_rest(world):
     config, repos = world
     full_world(config.vault)
     for index in range(60):
-        in_notes(config.vault, f"Topic number {index:02}", "topic", "2026-10-02")
+        in_notes(config.vault, f"List number {index:02}", "list", "2026-10-02")
     small = Config(vault=config.vault, state_dir=config.state_dir, recall_budget_tokens=400)
 
     text = recall(hook(repos["ai-assistant-hub"]), small)
@@ -225,10 +252,11 @@ def test_titles_that_do_not_fit_end_with_a_line_that_counts_the_rest(world):
     assert len(text) <= 400 * 4
     assert CUT_MARKER not in text and PATHS_TITLE not in text  # the project's files fit
     assert "Loki port 3100 clashes with Grafana." in text
+    assert "## notes/uv.md" in text  # the most recent topic loads whole
     listed = titles(text)
-    shown = [line for line in listed if line.startswith("- ") and ": notes/" in line]
-    assert listed[-1] == f"- {64 - len(shown)} more in notes/: list the folder for them"
-    assert listed[0] == "- uv: notes/uv.md"  # the most recent first
+    shown = [line for line in listed if ": notes/" in line]
+    loaded = text.count("## notes/")
+    assert listed[-1] == f"- {64 - loaded - len(shown)} more in notes/: list the folder for them"
 
 
 def test_files_cut_without_a_summary_keep_their_paths_before_the_titles(world):
@@ -399,5 +427,4 @@ def test_hook_is_fast_with_500_files_in_notes_and_500_earlier_notes(world):
     context = output["hookSpecificOutput"]["additionalContext"]
     assert f"## {HUB}/knowledge.md" in context
     assert "K 499" not in context
-    assert context.rstrip().endswith("more in notes/: list the folder for them")
     assert elapsed < 1.0
