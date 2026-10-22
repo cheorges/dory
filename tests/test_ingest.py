@@ -107,7 +107,13 @@ def test_claude_runs_confined_in_the_vault_after_a_snapshot(setup):
         assert flag in call["command"]
     settings = json.loads(call["command"][call["command"].index("--settings") + 1])
     assert settings["disableAllHooks"] is True
-    assert "Edit(**/notes.md)" in settings["permissions"]["deny"]
+    assert settings["permissions"]["deny"] == [
+        "Read(private/**)",
+        "Edit(private/**)",
+        "Write(private/**)",
+        "Edit(projects/*/notes/**)",
+        "Write(projects/*/notes/**)",
+    ]
     assert call["bundle_dir"].parent == state.work
     assert (call["bundle_dir"] / "rules.md").read_text().startswith("# Writing rules")
     assert fake.snapshot_existed
@@ -249,18 +255,30 @@ def test_task_gives_fixed_frontmatter_values(setup):
     assert "- date: 20" in task
 
 
-def test_task_names_the_knowledge_files_the_notes_and_today(setup):
+def test_task_names_the_files_in_notes_with_their_type_and_today(setup):
     config, state, _ = setup
-    (config.vault / "general").mkdir(parents=True)
-    (config.vault / "general" / "notes.md").write_text("---\ntype: notes\n---\n")
+    notes = config.vault / "notes"
+    notes.mkdir(parents=True)
+    (notes / "Notion.md").write_text("---\ntype: topic\n---\n")
+    (notes / "Shopping list.md").write_text("---\ntype: list\n---\n")
+    (notes / "Untyped.md").write_text("- **A.** B.\n")
+    (notes / "archive").mkdir()
+    (notes / "archive" / "Old.md").write_text("old\n")
     fake = FakeClaude(config.vault, output("success"))
 
     run(state, make_process(config, state, fake))
 
     task = (fake.calls[0]["bundle_dir"] / "task.md").read_text()
-    assert "  - `general/knowledge.md`\n  - `private/knowledge.md`" in task
-    assert "read and never changed: `general/notes.md`" in task
-    assert "earlier version of dory" in task
+    assert (
+        "  - `notes/Notion.md` (topic)\n"
+        "  - `notes/Shopping list.md` (list)\n"
+        "  - `notes/Untyped.md` (topic)\n"
+    ) in task
+    assert "Old.md" not in task
+    assert "create a new topic file there only for a subject no file covers" in task
+    assert "`private/` is the user's folder: you cannot read it" in task
+    assert "knowledge file" not in task and "The user's notes" not in task  # no project
+    assert "general/" not in task and "notes.md" not in task
     assert "overview" not in task and "Known projects" not in task
     assert "- Today: 20" in task
     assert "- Language: English" in task
@@ -278,6 +296,9 @@ def test_task_for_a_project_links_its_knowledge_file_and_names_its_domain(tmp_pa
     queue.enqueue(
         state, session_id="abc12345-x", transcript=TRANSCRIPT, cwd=str(repo), reason="clear"
     )
+    notes = config.vault / "projects" / "hub" / "notes"
+    notes.mkdir(parents=True)
+    (notes / "Release steps.md").write_text("---\ntype: note\n---\nMine.\n")
     fake = FakeClaude(config.vault, output("success"))
 
     run(state, make_process(config, state, fake))
@@ -285,7 +306,8 @@ def test_task_for_a_project_links_its_knowledge_file_and_names_its_domain(tmp_pa
     task = (fake.calls[0]["bundle_dir"] / "task.md").read_text()
     assert '- projects: ["[[projects/hub/knowledge|hub]]"]' in task
     assert "- domain: work" in task
-    assert "  - `projects/hub/knowledge.md`" in task
+    assert "frontmatter): `projects/hub/knowledge.md`" in task
+    assert "never changed: `projects/hub/notes/Release steps.md`." in task
 
 
 def test_task_opens_with_the_note_language_as_an_instruction(setup):
@@ -401,7 +423,7 @@ def test_worker_runs_on_the_subscription_even_with_an_api_key_set(setup, monkeyp
     assert "ANTHROPIC_API_KEY" not in fake.calls[0]["env"]
 
 
-def test_task_for_a_private_project_leaves_out_the_general_file(tmp_path):
+def test_task_for_a_private_project_offers_no_topic_file(tmp_path):
     import subprocess
 
     repo = tmp_path / "hub"
@@ -421,8 +443,9 @@ def test_task_for_a_private_project_leaves_out_the_general_file(tmp_path):
 
     task = (fake.calls[0]["bundle_dir"] / "task.md").read_text()
     assert "- domain: private" in task
-    assert "`general/knowledge.md`" not in task
-    assert "  - `private/knowledge.md`" in task
+    assert "change or create no topic file" in task
+    assert "create a new topic file" not in task
+    assert "`projects/hub/knowledge.md`" in task
 
 
 def hub_setup(tmp_path):
@@ -451,28 +474,31 @@ def test_first_run_of_a_project_marked_private_before_names_private_everywhere(t
     call = fake.calls[0]
     assert "- domain: private" in call["bundle"]
     task = (call["bundle_dir"] / "task.md").read_text()
-    assert "- domain: private" in task and "`general/knowledge.md`" not in task
+    assert "- domain: private" in task and "change or create no topic file" in task
 
 
-def test_a_kept_baseline_keeps_the_files_it_captured(tmp_path):
+def test_a_kept_baseline_is_checked_with_the_layout_it_captured(tmp_path):
     from datetime import date
 
-    from dory import baseline, scopes
+    from dory import baseline
     from dory.project import project_for_root
 
     config, state, path = hub_setup(tmp_path)
     hub = project_for_root(tmp_path.joinpath("hub").resolve(), state.projects_file)
     baseline.create_skeletons(config.vault, hub, date(2026, 10, 19))
     kept = state.baselines / path.stem
-    baseline.capture(config.vault, kept, scopes.knowledge_files(hub, "work"))
+    baseline.capture(config.vault, kept, hub, topics_allowed=True)
     knowledge = config.vault / "projects" / "hub" / "knowledge.md"
     knowledge.write_text(knowledge.read_text().replace("domain: work", "domain: private"))
     fake = FakeClaude(config.vault, output("success"))
 
     run(state, make_process(config, state, fake))  # the retry after a killed attempt
 
-    task = (fake.calls[0]["bundle_dir"] / "task.md").read_text()
-    assert "  - `general/knowledge.md`" in task
     log = json.loads((state.root / "runs.log").read_text().splitlines()[-1])
-    assert not [c for c in log["vault_changes"] if c["file"] == "general/knowledge.md"]
+    restored = {
+        "change": "restored",
+        "file": "projects/hub/knowledge.md",
+        "lead": "frontmatter: domain",
+    }
+    assert restored in log["vault_changes"]
     assert "domain: work" in knowledge.read_text()  # the killed run's change is undone

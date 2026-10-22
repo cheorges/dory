@@ -24,11 +24,21 @@ from dory.worker import Outcome, Process, prepare
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 MAX_TURNS = 40
 MAX_BUDGET_USD = 1.0
-# No hooks of the user's setup in the run, and the user's notes stay theirs.
+# No hooks of the user's setup in the run; the user's project notes and private folder stay
+# theirs. Patterns without a leading slash are relative to the run's working directory, the
+# vault; a Read rule also holds for Grep and Glob.
 WORKER_SETTINGS = json.dumps(
     {
         "disableAllHooks": True,
-        "permissions": {"deny": ["Edit(**/notes.md)", "Write(**/notes.md)"]},
+        "permissions": {
+            "deny": [
+                "Read(private/**)",
+                "Edit(private/**)",
+                "Write(private/**)",
+                "Edit(projects/*/notes/**)",
+                "Write(projects/*/notes/**)",
+            ]
+        },
     }
 )
 TRANSIENT_STATUS = {401, 403, 408, 429, 500, 502, 503, 504, 529}
@@ -154,19 +164,18 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
         baseline.create_skeletons(config.vault, project, date.today())
         domain = scopes.project_domain(config.vault, project)
         kept = baseline.baseline_dir(state, entry.id)
-        knowledge = baseline.unchecked_files(kept) or scopes.knowledge_files(project, domain)
         _write_task(
             bundle.parent,
             entry,
             SessionTarget(note, project, domain, draft),
-            knowledge,
-            scopes.notes_files(config.vault, project),
+            _task_files(config.vault, project),
             config.language,
         )
         (bundle.parent / "rules.md").write_text(rules_text())
         vault_snapshot = snapshot(config, state)
         before = baseline.vault_state(config.vault)
-        unchecked = baseline.capture(config.vault, kept, knowledge)
+        topics_allowed = domain != "private"  # every session lists the topics
+        unchecked = baseline.capture(config.vault, kept, project, topics_allowed=topics_allowed)
 
         try:
             result = runner(
@@ -184,7 +193,7 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
             outcome, error = Outcome.FAILED, f"session note missing: {note}"
         changed = baseline.vault_state(config.vault) != before
         due = changed or unchecked  # a kept baseline still holds a killed run's changes
-        changes = baseline.check(config.vault, kept, knowledge) if due else []
+        changes = baseline.check(config.vault, kept) if due else []
         baseline.mark_checked(kept)
         if outcome is Outcome.DONE:
             state.mark_seen(condensed.uuids)
@@ -208,12 +217,28 @@ class SessionTarget:
     draft: bool  # the session note exists from an aborted run of this entry
 
 
+@dataclass(frozen=True)
+class TaskFiles:
+    """The files a run may change and the user's notes it must leave alone."""
+
+    knowledge: Path | None
+    notes: list[tuple[Path, str]]  # every file in `notes/`, with its type
+    user_notes: list[Path]
+
+
+def _task_files(vault: Path, project: Project | None) -> TaskFiles:
+    return TaskFiles(
+        knowledge=scopes.knowledge_file(project),
+        notes=[(path, scopes.file_type(vault / path)) for path in scopes.notes_folder_files(vault)],
+        user_notes=scopes.project_notes(vault, project),
+    )
+
+
 def _write_task(
     bundle_dir: Path,
     entry: queue.Entry,
     target: SessionTarget,
-    knowledge: list[Path],
-    notes: list[Path],
+    files: TaskFiles,
     language: str,
 ) -> None:
     note, project = target.note, target.project
@@ -229,19 +254,13 @@ def _write_task(
         "stay in English.",
         "",
         f"- Session note: `{note}` (exactly this path, relative to the vault)",
-        "- Knowledge files you may change, with Edit (they exist, with their frontmatter):",
-        *(f"  - `{path}`" for path in knowledge),
-        "- The user's notes, read and never changed: "
-        + (", ".join(f"`{path}`" for path in notes) or "none yet")
-        + ". Nothing they say becomes an entry: a session that only repeats a note adds nothing.",
-        "- Every other file in `projects/`, `general/` and `private/` is from an earlier "
-        "version of dory: neither read nor write it.",
+        *_task_file_lines(files, private=target.domain == "private"),
     ]
     if target.draft:
         lines.append(
             "- The session note exists from an aborted run (repeated run): rewrite it "
-            "completely. Entries that run added are in the knowledge files already: do not add "
-            "them twice."
+            "completely. Entries that run added are in the knowledge and topic files already: "
+            "do not add them twice."
         )
     lines += [
         "",
@@ -262,6 +281,42 @@ def _write_task(
         f"- File name of the session note: {note.stem}",
     ]
     (bundle_dir / "task.md").write_text("\n".join(lines) + "\n")
+
+
+def _task_file_lines(files: TaskFiles, *, private: bool) -> list[str]:
+    lines = []
+    if files.knowledge:
+        lines.append(
+            f"- The project's knowledge file, change it with Edit (it exists, with its "
+            f"frontmatter): `{files.knowledge}`"
+        )
+    lines.append("- The files in `notes/`, for everything without a project, with their type:")
+    lines += [f"  - `{path}` ({kind})" for path, kind in files.notes] or ["  - none yet"]
+    if private:
+        lines.append(
+            "- This is a private project: update the lists and registers in `notes/` the "
+            "session touched, but change or create no topic file. What applies beyond the "
+            "project becomes no entry."
+        )
+    else:
+        lines.append(
+            "- Change a topic, list or register in `notes/` with Edit; create a new topic file "
+            "there only for a subject no file covers."
+        )
+    if files.knowledge:
+        lines.append(
+            "- The user's notes for this project, read in full and never changed: "
+            + (", ".join(f"`{path}`" for path in files.user_notes) or "none yet")
+            + ". Nothing they say becomes an entry: a session that only repeats a note adds "
+            "nothing."
+        )
+    lines += [
+        "- `private/` is the user's folder: you cannot read it, and you never write into it or "
+        "link to it.",
+        "- Every other file in `projects/` belongs to another project or to an earlier version "
+        "of dory: neither read nor write it.",
+    ]
+    return lines
 
 
 def _worker_env() -> dict[str, str]:

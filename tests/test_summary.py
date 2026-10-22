@@ -1,4 +1,4 @@
-"""Record 003, Story S4: a summary made by the worker when the files exceed the limit."""
+"""A summary made by the worker when a project's files exceed the limit of the session start."""
 
 import json
 import subprocess
@@ -12,7 +12,7 @@ from dory.ingest import RunResult
 from dory.project import project_for_root
 from dory.recall import CUT_MARKER, STALE, recall
 from dory.state import StateDir
-from dory.summarize import CUT, make_summarize
+from dory.summarize import CUT, build_command, make_summarize
 from dory.worker import Outcome, run
 
 FIXTURE = Path(__file__).parent / "fixtures" / "transcripts" / "resume-compact.jsonl"
@@ -132,7 +132,7 @@ def test_worker_writes_the_summary_with_header_within_the_target_and_logs_its_co
 
     saved = summary.load(state, NAME)
     raw = (state.summaries / f"{NAME}.md").read_text()
-    assert raw.startswith(f"---\nhash: {saved.hash}\ndomain: work\n---\n")
+    assert raw.startswith(f"---\nhash: {saved.hash}\ndomain: work\nlinked: []\n---\n")
     assert len(saved.text) <= summary.target_chars(config)
     assert saved.text.endswith(CUT)
     assert "- Line 0 " in saved.text
@@ -151,7 +151,7 @@ def test_worker_writes_the_summary_with_header_within_the_target_and_logs_its_co
 def test_a_matching_summary_loads_instead_of_the_files_with_their_paths(world):
     config, state, hub, spawned = world
     knowledge(config.vault, 30)
-    write(config.vault, f"{HUB}/notes.md", "---\ntype: notes\n---\n- 2026-10-19: My own note\n")
+    write(config.vault, f"{HUB}/notes/Mine.md", "---\ntype: note\n---\nMy own note\n")
     make_summarize(config, state, FakeRunner(answer("### Facts\n- **Summed up.**")))({NAME})
 
     text = recall(hook(hub), config)
@@ -159,7 +159,7 @@ def test_a_matching_summary_loads_instead_of_the_files_with_their_paths(world):
     assert "### Facts\n- **Summed up.**" in text
     assert "Entry 00" not in text
     assert "My own note" not in text
-    assert f"- {HUB}/notes.md" in text
+    assert f"- {HUB}/notes/Mine.md" in text
     assert f"- {HUB}/knowledge.md" in text
     assert CUT_MARKER not in text
     assert len(text) <= summary.limit_chars(config)
@@ -222,43 +222,118 @@ def test_without_a_summary_the_files_are_cut_marked_and_an_empty_queue_pass_buil
     assert "Built from the mark." in recall(hook(hub), config)
 
 
-def test_contexts_outside_a_repository_and_of_an_unknown_repository_have_their_own_names(world):
+def test_without_a_known_project_nothing_is_summarized_and_old_marks_go_without_a_run(world):
     config, state, hub, spawned = world
-    lines = "".join(f"- **General {index:02}.** " + "z" * 40 + "\n" for index in range(30))
-    write(config.vault, "general/knowledge.md", f"---\ntype: knowledge\n---\n## Facts\n{lines}")
+    for index in range(60):
+        write(config.vault, f"notes/Topic {index:02}.md", "---\ntype: topic\n---\n- **x.** y\n")
     home = hub.parent.parent / "home"
     home.mkdir()
     unknown = make_repo(hub.parent / "unknown")
+    summary.mark(state, summary.OUTSIDE)  # left by 0.4.0
+    summary.mark(state, summary.GENERAL)
 
     recall(hook(home), config)
     recall(hook(unknown), config)
-
-    assert summary.marked(state) == {summary.OUTSIDE, summary.GENERAL}
     runner = FakeRunner()
-    run(state, lambda path, entry: Outcome.DONE, make_summarize(config, state, runner))
-    assert summary.load(state, summary.OUTSIDE).domain == "private"
-    assert summary.load(state, summary.GENERAL).domain == "work"
+    make_summarize(config, state, runner)(summary.marked(state))
+
+    assert runner.calls == []
+    assert summary.marked(state) == set()
+    assert spawned == []
 
 
 def test_a_repository_named_like_a_reserved_context_keeps_its_own_summary(world):
     config, state, hub, _ = world
-    lines = "".join(f"- **General {index:02}.** " + "z" * 40 + "\n" for index in range(30))
-    write(config.vault, "general/knowledge.md", f"---\ntype: knowledge\n---\n## Facts\n{lines}")
+    lines = "".join(f"- **Odd {index:02}.** " + "z" * 40 + "\n" for index in range(30))
     odd = make_repo(hub.parent / "_general")
     project_for_root(odd.resolve(), state.projects_file)
-    unknown = make_repo(hub.parent / "unknown")
-    write(config.vault, "projects/_general/notes.md", "---\ntype: notes\n---\n- 2026-10-19: Odd\n")
-    runner = FakeRunner(answer("- General only."), answer("- Odd project."))
-    summarize = make_summarize(config, state, runner)
+    write(config.vault, "projects/_general/knowledge.md", f"---\ntype: knowledge\n---\n{lines}")
+    runner = FakeRunner(answer("- Odd project."))
 
-    recall(hook(unknown), config)
     recall(hook(odd), config)
-    summarize(summary.marked(state))
+    make_summarize(config, state, runner)(summary.marked(state))
 
     assert summary.marked(state) == set()
-    assert "- General only." in recall(hook(unknown), config)
+    assert summary.load(state, "project-_general").text == "- Odd project."
+    assert summary.load(state, summary.GENERAL) is None
     assert "- Odd project." in recall(hook(odd), config)
+
+
+def test_the_context_is_the_projects_notes_their_linked_private_notes_and_its_knowledge(world):
+    config, state, hub, _ = world
+    knowledge(config.vault, 3)
+    write(config.vault, f"{HUB}/notes/B second.md", "Also [[Contract]].\n")
+    write(config.vault, f"{HUB}/notes/A first.md", "See [[private/Contract]].\n")
+    write(config.vault, "private/Contract.md", "Notice period three months.\n")
+    write(config.vault, "private/Unlinked.md", "Not loaded.\n")
+    write(config.vault, "notes/Notion.md", "---\ntype: topic\n---\n- **x.** y\n")
+    project = project_for_root(hub.resolve(), state.projects_file)
+
+    ctx = summary.context_for(config.vault, project)
+
+    assert ctx.files == [
+        Path(f"{HUB}/notes/A first.md"),
+        Path("private/Contract.md"),
+        Path(f"{HUB}/notes/B second.md"),
+        Path(f"{HUB}/knowledge.md"),
+    ]
+    assert ctx.linked == ("private/Contract.md",)
+
+
+def test_a_linked_private_note_or_a_private_project_makes_the_context_private(world):
+    config, state, hub, _ = world
+    project = project_for_root(hub.resolve(), state.projects_file)
+    knowledge(config.vault, 3)
+    assert summary.context_for(config.vault, project).domain == "work"
+
+    write(config.vault, f"{HUB}/notes/Mine.md", "See [[Contract]].\n")
+    write(config.vault, "private/Contract.md", "Notice period three months.\n")
+    assert summary.context_for(config.vault, project).domain == "private"
+
+    (config.vault / HUB / "notes" / "Mine.md").unlink()
+    knowledge(config.vault, 3, domain="private")
+    assert summary.context_for(config.vault, project).domain == "private"
+
+
+def test_a_summary_made_with_other_linked_notes_is_not_loaded(world):
+    config, state, hub, spawned = world
+    knowledge(config.vault, 30)
+    write(config.vault, "private/Contract.md", "Notice period three months.\n")
+    write(config.vault, "private/Health.md", "Doctor on Friday.\n")
+    note = write(config.vault, f"{HUB}/notes/Mine.md", "See [[Contract]].\n")
+    make_summarize(config, state, FakeRunner(answer("- Notice period of three months.")))({NAME})
+    assert summary.load(state, NAME).linked == ("private/Contract.md",)
+
+    note.write_text("See [[Health]].\n")
+    text = recall(hook(hub), config)
+
+    assert "Notice period of three months" not in text
+    assert CUT_MARKER in text
+    assert summary.marked(state) == {NAME}
+    assert spawned == [True]
+
+
+def test_a_change_in_notes_keeps_a_project_summary_fresh(world):
+    config, state, hub, spawned = world
+    knowledge(config.vault, 30)
+    make_summarize(config, state, FakeRunner(answer("- Summed up.")))({NAME})
+    write(config.vault, "notes/Notion.md", "---\ntype: topic\n---\n- **New topic.** x\n")
+
+    text = recall(hook(hub), config)
+
+    assert "- Summed up." in text
+    assert STALE not in text
     assert summary.marked(state) == set()
+
+
+def test_the_system_prompt_names_the_project_notes_as_the_users_notes(world):
+    config, _, _, _ = world
+
+    command = build_command(config, summary.target_chars(config))
+
+    prompt = command[command.index("--system-prompt") + 1]
+    assert "notes/ folder" in prompt
+    assert "notes.md" not in prompt
 
 
 def test_a_context_within_the_target_gets_no_summary_run(world):
@@ -294,17 +369,19 @@ def test_whole_text_over_the_limit_with_files_within_the_target_is_cut_without_a
 def test_a_transient_or_timed_out_run_keeps_the_old_summary_and_ends_the_summary_jobs(world, stop):
     config, state, hub, _ = world
     knowledge(config.vault, 30)
-    lines = "".join(f"- **General {index:02}.** " + "z" * 40 + "\n" for index in range(30))
-    write(config.vault, "general/knowledge.md", f"---\ntype: knowledge\n---\n## Facts\n{lines}")
+    lines = "".join(f"- **First {index:02}.** " + "z" * 40 + "\n" for index in range(30))
+    first = make_repo(hub.parent / "aaa")
+    project_for_root(first.resolve(), state.projects_file)
+    write(config.vault, "projects/aaa/knowledge.md", f"---\ntype: knowledge\n---\n{lines}")
     make_summarize(config, state, FakeRunner(answer("- Old.")))({NAME})
     knowledge(config.vault, 30, word="changed")
     summary.mark(state, NAME)
-    summary.mark(state, summary.GENERAL)
+    summary.mark(state, "project-aaa")
     waiting = queue.enqueue(state, session_id="w", transcript=FIXTURE, cwd=str(hub), reason="x")
     runner = FakeRunner(stop)
 
-    # The general context sorts first, so it is the one that stops.
-    result = make_summarize(config, state, runner)({summary.GENERAL, NAME})
+    # The other project's context sorts first, so it is the one that stops.
+    result = make_summarize(config, state, runner)({"project-aaa", NAME})
 
     assert result is True
     assert len(runner.calls) == 1

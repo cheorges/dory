@@ -27,3 +27,10 @@ Estimated against actual time per iteration. Actual times come from the herdr jo
 | S5: `/dory:note` writes the user's notes | 0.5 | 2026-10-19 16:06 | 16:31 | 26 min / 14 min | ok 16:45 | agent time includes five live rounds of the seven note checks (about 70 s each), two review passes (three reviewers, then one); 1 P2 found by all three (no lock between add-note and a running worker), 2 P3; human time is reading the review package |
 | S6: search finds single entries | 0.3 | 2026-10-19 16:45 | 16:56 | 11 min / 15 min | ok 17:11 | agent time includes three live rounds of the two search checks and one review pass (three reviewers, all `correct`, 3 small findings); human time is reading the review package |
 | S7: release 0.4.0 prepared | 0.3 | 2026-10-19 17:12 | 17:21 | 10 min / 45 min | ok 18:05 | agent time includes one documentation review (6 findings, one P2 on deleting private overviews too early); human time is reading the release package |
+
+## Record 004: Notes as files and one folder without a project
+
+| Story | Est. (h) | Start | Impl. done | Actual (agent / human) | Review/DoD | Note |
+|-------|----------|-------|------------|------------------------|------------|------|
+| S1: file names and post-run checks for the new layout | 1.5 | 2026-10-21 22:16 | 22:39 | 23 min / 2 min | not reviewed: the user let the build go on without a halt per story (2026-10-21 22:41) | agent time includes two review passes (two reviewers, then one; 3 findings, P2 and two P3); human time is the review of this package, read at sign-off; the design (conversation and one architect review) is not counted |
+| S2 to S7: worker, session start, summaries, `/dory:note`, search, release text | 2 for S2, none for the rest | 2026-10-21 22:42 | 23:11 | 29 min / not reviewed yet | | built in one run without a halt per story (the user's instruction of 22:41), so the stories are not measured one by one; includes the deny probe (11 runs), the live rule suite once and the changed checks twice more, the note checks three times, one combined review pass (two reviewers, 2 P3) |

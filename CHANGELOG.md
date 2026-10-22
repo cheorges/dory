@@ -2,6 +2,19 @@
 
 All notable changes to dory are listed here. Versions follow [Semantic Versioning](https://semver.org/); the version lives in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py`, and a test keeps them in sync.
 
+## 0.5.0 (2026-10-21)
+
+Your notes become files with a title, everything without a project moves into `notes/`, and `private/` becomes your own folder that dory reads only through your links. The update does not migrate notes 0.4.0 wrote; see the last points.
+
+- **A note is a file.** `/dory:note` in a project creates a file in `projects/<project>/notes/`, named by a title that says what it is about. Claude writes title and content from what you ask for and from the session, in the note language. The worker reads these notes in full and never changes them; when a session shows one to be wrong, it corrects the project's `knowledge.md` and links the note under `## Open` in the session note.
+- **Everything without a project in `notes/`.** Knowledge that applies beyond a project lives in one file per topic in `notes/` (`Notion`, `Outlook connector`), next to the lists and registers. The worker extends the matching topic or creates one for a new subject; `/dory:note "remember in general: ..."` does the same. A topic file has the form of `knowledge.md`. `general/` is gone.
+- **`private/` is yours.** dory creates the folder and never writes into it, and the worker can neither read nor write it (the deny rules of its run, checked live). Private knowledge from sessions is no longer kept; at most the session note mentions it. Write private notes into `private/` in Obsidian; a link from one of a project's notes (`[[private/Employment contract]]` or `[[Employment contract]]`) loads the private note at that project's session start. `/dory:note` no longer has a private scope.
+- **Session start.** In a project it loads your notes, each followed by the private notes it links, then `knowledge.md`, and lists every file in `notes/` by title, most recently updated first, so Claude reads a topic when the session touches it. Outside a project only the titles load. When the project's files do not fit `recall_budget_tokens`, their summary loads; it is used only while the same private notes are linked.
+- **Search covers the whole vault.** `/dory:search` finds entries of the knowledge and topic files and whole notes, lists, registers and session notes, `private/` included, in every session.
+- **Checks after every run.** A change to one of your notes or to a file in `private/` is listed in `runs.log` and `dory status` and no longer undone, so an edit you save in Obsidian while a run is going stays. The snapshot is the way back. A topic file the worker creates gets `type: topic` if it lacks one, and a name that breaks the naming rules is reported.
+- **Files 0.4.0 wrote.** `general/knowledge.md` and `general/notes.md` and a project's `notes.md` are no longer loaded, searched or written: move what you want to keep into topic files in `notes/` or into note files in the project's `notes/`, then delete them. `private/knowledge.md` and `private/notes.md` stay as your private notes and load when a project note links them.
+- **Sessions started before the update** still run the 0.4.0 hooks until you restart them or run `/reload-plugins` in them, and their worker writes into `general/`, `private/` and `notes.md`.
+
 ## 0.4.0 (2026-10-19)
 
 Each project's knowledge lives in one file instead of one note per insight, your own notes get a file of their own, and every worker run is checked against the vault as it was before. The update does not migrate existing notes; see the last two points.

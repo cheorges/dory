@@ -1,10 +1,12 @@
-"""Summaries of a context, made by the worker and loaded by the session start (Record 003).
+"""Summaries of a context, made by the worker and loaded by the session start.
 
-A context is what one session start loads: a known project (`project-<name>`), `_general` for
-a repository dory does not know yet, `_outside` for sessions outside a repository. A project's
-name comes from its directory and can be anything, so the prefix keeps it apart from the two
-reserved names. The summary lives in `<state>/summaries/<context>.md` with the hash of the text
-it was made from and the domain in its header. A session start that needs a new one touches
+A context is what one session start loads in full: a known project's notes, the private notes
+they link and its `knowledge.md` (`context.loaded_files`). Its name is `project-<name>`; the
+names `_general` and `_outside` of earlier versions name no context any more, since nothing
+loads in full outside a known project. The summary lives in `<state>/summaries/<context>.md`
+with the hash of the text it was made from, the domain and the linked private notes in its
+header; it is used only for the same domain and the same linked notes, so a private note's
+content never outlives its link. A session start that needs a new one touches
 `<context>.wanted`.
 """
 
@@ -14,7 +16,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from dory import scopes
+from dory import context, scopes
 from dory.config import Config
 from dory.frontmatter import parse_frontmatter, strip_frontmatter
 from dory.project import Project
@@ -32,11 +34,17 @@ _WANTED = ".wanted"
 class Context:
     name: str
     files: list[Path]
+    private_project: bool = False
 
     @property
     def domain(self) -> str:
-        """Private when the context loads `private/`; the summary must never cross it."""
-        return "private" if any(path.parts[0] == "private" for path in self.files) else "work"
+        """Private for a private project or one that loads a private note; never crossed."""
+        return "private" if self.private_project or self.linked else "work"
+
+    @property
+    def linked(self) -> tuple[str, ...]:
+        """The private notes the context loads, as their paths."""
+        return tuple(sorted(path.as_posix() for path in self.files if path.parts[0] == "private"))
 
 
 @dataclass(frozen=True)
@@ -44,6 +52,11 @@ class Summary:
     text: str
     hash: str
     domain: str
+    linked: tuple[str, ...] = ()
+
+    def fits(self, ctx: Context) -> bool:
+        """Made for the context's domain and the private notes it loads now."""
+        return self.domain == ctx.domain and self.linked == ctx.linked
 
 
 def context_name(project: Project | None) -> str:
@@ -53,16 +66,13 @@ def context_name(project: Project | None) -> str:
 
 
 def context_for(vault: Path, project: Project | None) -> Context:
-    files = scopes.context_files(project, scopes.project_domain(vault, project))
-    return Context(context_name(project), files)
+    private = scopes.project_domain(vault, project) == "private"
+    return Context(context_name(project), context.loaded_files(vault, project), private)
 
 
 def context_named(vault: Path, name: str) -> Context | None:
-    """The context a mark names; None for a name dory does not give."""
-    if name == OUTSIDE:
-        return context_for(vault, None)
-    if name == GENERAL:
-        return context_for(vault, Project(name="", root=Path()))
+    """The context a mark names; None for a name dory does not give, `_general` and `_outside`
+    of earlier versions included."""
     if name.startswith(_PROJECT) and len(name) > len(_PROJECT):
         # Only the name matters for the vault layout.
         return context_for(vault, Project(name=name.removeprefix(_PROJECT), root=Path()))
@@ -96,13 +106,20 @@ def load(state: StateDir, name: str) -> Summary | None:
     meta = parse_frontmatter(raw)
     if not meta.get("hash") or not meta.get("domain"):
         return None
-    return Summary(strip_frontmatter(raw).strip("\n"), str(meta["hash"]), str(meta["domain"]))
+    linked = meta.get("linked")
+    return Summary(
+        strip_frontmatter(raw).strip("\n"),
+        str(meta["hash"]),
+        str(meta["domain"]),
+        tuple(map(str, linked)) if isinstance(linked, list) else (),
+    )
 
 
 def save(state: StateDir, name: str, summary: Summary) -> None:
     path = _path(state, name)
     path.parent.mkdir(parents=True, exist_ok=True)
-    header = f"---\nhash: {summary.hash}\ndomain: {summary.domain}\n---\n"
+    linked = json.dumps(list(summary.linked), ensure_ascii=False)
+    header = f"---\nhash: {summary.hash}\ndomain: {summary.domain}\nlinked: {linked}\n---\n"
     tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     tmp.write_text(header + summary.text + "\n", encoding="utf-8")
     tmp.replace(path)

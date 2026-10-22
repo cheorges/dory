@@ -37,8 +37,8 @@ Write the summary and nothing else: no preamble, no closing remark, no code fenc
   English.
 - Pitfalls and decisions first, each with what goes wrong without it; then facts, how-tos and
   preferences. Leave out history and detail a reader can look up in the files.
-- Keep the gist of the user's own notes (the files whose path ends in notes.md), in their
-  words where possible.
+- Keep the gist of the user's own notes (the files under a project's notes/ folder and under
+  private/), in their words where possible.
 - Short bullets under the headings ### Pitfalls, ### Decisions, ### Facts, ### How-to,
   ### Preferences and ### User notes, in this order; leave out a heading without content.
 """
@@ -118,7 +118,7 @@ def make_summarize(
             return None
         key = summary.digest(text, ctx.domain, config)
         saved = summary.load(state, name)
-        if saved and saved.hash == key and saved.domain == ctx.domain:
+        if saved and saved.hash == key and saved.fits(ctx):
             return None
         if _failures(state, name, key) >= MAX_FAILURES:
             return None
@@ -133,7 +133,7 @@ def make_summarize(
         if outcome is Outcome.DONE and not written:
             outcome, error = Outcome.FAILED, "empty summary"
         if outcome is Outcome.DONE:
-            summary.save(state, name, summary.Summary(written, key, ctx.domain))
+            summary.save(state, name, summary.Summary(written, key, ctx.domain, ctx.linked))
             _failure_file(state, name).unlink(missing_ok=True)
         elif outcome in (Outcome.FAILED, Outcome.TIMEOUT):
             _count_failure(state, name, key)

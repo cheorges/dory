@@ -1,13 +1,20 @@
-"""Before and after a worker run: the files it may write, its baseline, and the checks.
+"""Before and after a worker run: the folders it needs, its baseline, and the checks.
 
-The worker edits knowledge files with a model, so dory's code guards what the model must not
-change: the frontmatter keys that place a file (type, domain, paths) and the user's notes. It
-also reports every other file the run touched in the scope folders, and every entry it added,
-changed or removed. Each attempt of an entry takes its own baseline and reports its own changes,
-so edits the user or other entries make between two attempts are neither undone nor counted.
-Only when an attempt ended before its checks ran (a killed worker) does the next attempt keep
-that baseline, so the killed run's changes are still checked. The baseline lives outside the
-bundle directory, which the run itself can write.
+The worker edits files with a model, so dory's code guards what the model must not change and
+reports what it did change. The baseline copies the files a run may write, the project's
+`knowledge.md` and every file in `notes/`, and hashes the files it must leave alone: every other
+`.md` under `projects/`, the user's notes among them, and every `.md` under `private/`. After
+the run, the checks restore the frontmatter keys that place a file and report every watched file
+the run created, changed or deleted, and every entry it added, changed or removed in the
+project's `knowledge.md` and in the topic files of `notes/`. Nothing the user may have written
+is restored: the checks cannot tell the run's writes from the user's, and the snapshot is the
+way back.
+
+Each attempt of an entry takes its own baseline and reports its own changes, so edits the user
+or other entries make between two attempts are neither undone nor counted. Only when an attempt
+ended before its checks ran (a killed worker) does the next attempt keep that baseline, so the
+killed run's changes are still checked. The baseline lives outside the bundle directory, which
+the run itself can write.
 """
 
 import contextlib
@@ -22,76 +29,101 @@ from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
-from dory import entries
-from dory.frontmatter import parse_frontmatter
+from dory import entries, names
+from dory.frontmatter import parse_frontmatter, read_frontmatter
 from dory.project import Project
 from dory.repodocs import SWEEP_GRACE_SECONDS
-from dory.scopes import NOTES, SCOPES, knowledge_files, project_domain
+from dory.scopes import (
+    KNOWLEDGE,
+    NOTES_FOLDER,
+    PRIVATE,
+    file_type,
+    knowledge_file,
+    notes_folder_files,
+    project_domain,
+)
 from dory.state import StateDir
 
-PROTECTED_KEYS = ("type", "domain", "paths")
+KNOWLEDGE_KEYS = ("type", "domain", "paths")
+_WATCHED = ("projects", PRIVATE)
 _UNWATCHED = {".obsidian", ".trash"}  # Obsidian writes its workspace while the vault is open
 _COMPLETE = "COMPLETE"
 _CHECKED = "CHECKED"
 _HASHES = "hashes.json"
-_FILES = "knowledge-files.json"
+_LAYOUT = "layout.json"  # missing in a baseline taken by an earlier version
 _UNREADABLE = "unreadable"
 
 
 def create_skeletons(vault: Path, project: Project | None, today: date) -> None:
-    for relative in knowledge_files(project):
-        path = vault / relative
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(_skeleton(vault, relative, project, today))
+    """The project's `knowledge.md` with its frontmatter, and an empty `private/` for the user."""
+    (vault / PRIVATE).mkdir(parents=True, exist_ok=True)
+    if project is None or not project.name:
+        return
+    path = vault / "projects" / project.name / KNOWLEDGE
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_skeleton(vault, project, today))
 
 
 def baseline_dir(state: StateDir, entry_id: str) -> Path:
     return state.baselines / entry_id
 
 
-def capture(vault: Path, target: Path, knowledge: list[Path]) -> bool:
+def capture(vault: Path, target: Path, project: Project | None, *, topics_allowed: bool) -> bool:
     """Take the attempt's baseline, unless the last attempt ended before its checks ran.
 
     Returns True when that earlier, unchecked baseline is kept: its changes still need a check.
+    A private project's run may not write topic files (`topics_allowed`), which every session
+    lists.
     """
-    with notes_lock(target.parent):  # add-note must not write between copy and marker
-        if (target / _COMPLETE).exists() and not (target / _CHECKED).exists():
+    with notes_lock(target.parent):  # add-note must not write between the hashes and the marker
+        if _open(target) and (target / _LAYOUT).exists():
             return True
         shutil.rmtree(target, ignore_errors=True)
         target.mkdir(parents=True)
-        for relative in [*knowledge, *_notes_files(vault)]:
+        knowledge = knowledge_file(project)
+        notes = notes_folder_files(vault)
+        for relative in [*([knowledge] if knowledge else []), *notes]:
             source = vault / relative
             if source.is_file():
                 copy = target / "files" / relative
                 copy.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, copy)
+                with contextlib.suppress(OSError):  # the checks report an unreadable file
+                    shutil.copyfile(source, copy)
         hashes = {
             str(relative): _digest_or_mark(vault / relative)
-            for relative in _other_files(vault, knowledge)
+            for relative in _watched_files(vault, knowledge)
         }
         (target / _HASHES).write_text(json.dumps(hashes, ensure_ascii=False))
-        (target / _FILES).write_text(json.dumps([str(relative) for relative in knowledge]))
+        layout = {
+            "knowledge": str(knowledge) if knowledge else None,
+            "notes": [str(relative) for relative in notes],
+            "topics": topics_allowed,
+        }
+        (target / _LAYOUT).write_text(json.dumps(layout))
         (target / _COMPLETE).touch()
         return False
 
 
-def notes_copies(state: StateDir, relative: Path) -> list[Path]:
-    """Where the baselines of queued entries keep a `notes.md`, whether they hold it yet or not.
+def record_dory_write(state: StateDir, vault: Path, relative: Path) -> None:
+    """A watched file dory writes for the user while entries wait: their checks take it as given.
 
-    `dory add-note` writes its line there as well, so the checks of a running worker keep it.
+    Call it under `notes_lock`, together with the write, so no check sees the file in between.
     """
+    if relative.parts[0] not in _WATCHED:
+        return
     queued = {path.stem for path in state.queue.glob("*.json")}
-    return [
-        kept / "files" / relative
-        for kept in sorted(state.baselines.glob("*"))
-        if kept.name in queued and (kept / _COMPLETE).exists() and not (kept / _CHECKED).exists()
-    ]
+    digest = _digest_or_mark(vault / relative)
+    for kept in sorted(state.baselines.glob("*")):
+        if kept.name in queued and _open(kept) and (kept / _LAYOUT).exists():
+            hashes = json.loads((kept / _HASHES).read_text())
+            hashes[str(relative)] = digest
+            (kept / _HASHES).write_text(json.dumps(hashes, ensure_ascii=False))
 
 
 @contextmanager
 def notes_lock(baselines: Path) -> Iterator[None]:
-    """Keep `dory add-note` apart from a run's baseline capture and its notes restore.
+    """Keep `dory add-note` apart from a run's baseline capture and its checks.
 
     Held for milliseconds, unlike the worker lock, which lasts the whole run.
     """
@@ -104,35 +136,39 @@ def notes_lock(baselines: Path) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-def unchecked_files(target: Path) -> list[Path] | None:
-    """The knowledge files of a baseline that the next attempt keeps, or None.
-
-    The files a run may write depend on the project's domain, which can change between two
-    attempts; a kept baseline is checked against the files it captured.
-    """
-    if not (target / _COMPLETE).exists() or (target / _CHECKED).exists():
-        return None
-    try:
-        return [Path(name) for name in json.loads((target / _FILES).read_text())]
-    except (OSError, ValueError):
-        return None
-
-
 def mark_checked(target: Path) -> None:
     """The attempt's changes are checked; the next attempt takes a fresh baseline."""
     (target / _CHECKED).touch()
 
 
-def check(vault: Path, target: Path, knowledge: list[Path]) -> list[dict]:
-    """Restore what the run must not change, then report what it changed against the baseline."""
+def check(vault: Path, target: Path) -> list[dict]:
+    """Restore the keys that place a file, then report what the run changed against the baseline."""
+    layout = json.loads((target / _LAYOUT).read_text())
+    knowledge = Path(layout["knowledge"]) if layout["knowledge"] else None
+    captured = [Path(name) for name in layout["notes"]]
+    uncopied = {relative for relative in captured if not (target / "files" / relative).exists()}
+    kept_notes = notes_folder_files(target / "files")
+    new_notes = sorted(set(notes_folder_files(vault)) - set(captured))
     changes: list[dict] = []
-    for relative in knowledge:
-        changes += _guarded(relative, lambda r=relative: _restore_frontmatter(vault, target, r))
+    if knowledge:
+        changes += _guarded(
+            knowledge, lambda: _restore_keys(vault, target, knowledge, KNOWLEDGE_KEYS)
+        )
+    for relative in kept_notes:
+        changes += _guarded(relative, lambda r=relative: _restore_type(vault, target, r))
+    changes += [
+        {"change": "failed", "file": str(r), "lead": "not readable when the baseline was taken"}
+        for r in sorted(uncopied)
+    ]
+    for relative in new_notes:
+        changes += _guarded(relative, lambda r=relative: _new_note(vault, r))
     with notes_lock(target.parent):
-        for relative in _notes_files(target / "files"):
-            changes += _guarded(relative, lambda r=relative: _restore_notes(vault, target, r))
-    changes += _guarded("scope folders", lambda: _unexpected(vault, target, knowledge))
-    for relative in knowledge:
+        changes += _guarded("watched files", lambda: _unexpected(vault, target, knowledge))
+    if not layout["topics"]:
+        changes += _guarded(
+            NOTES_FOLDER, lambda: _topics_written(vault, target, new_notes, uncopied)
+        )
+    for relative in [*([knowledge] if knowledge else []), *_topics(vault, target, uncopied)]:
         changes += _guarded(relative, lambda r=relative: _entry_changes(vault, target, r))
     return changes
 
@@ -164,35 +200,51 @@ def sweep(state: StateDir) -> None:
                 shutil.rmtree(kept, ignore_errors=True)
 
 
-def _skeleton(vault: Path, relative: Path, project: Project | None, today: date) -> str:
-    scope = relative.parts[0]
-    private = scope == "private" or (
-        scope == "projects" and project_domain(vault, project) == "private"
-    )
-    lines = ["---", "type: knowledge", f"domain: {'private' if private else 'work'}"]
-    if scope == "projects" and project:
-        lines.append(f"paths: {json.dumps([str(project.root)], ensure_ascii=False)}")
-    lines += [f"updated: {today:%Y-%m-%d}", "---", ""]
+def _open(target: Path) -> bool:
+    """Taken completely and not checked yet: an attempt ended before its checks ran."""
+    return (target / _COMPLETE).exists() and not (target / _CHECKED).exists()
+
+
+def _skeleton(vault: Path, project: Project, today: date) -> str:
+    lines = [
+        "---",
+        "type: knowledge",
+        f"domain: {project_domain(vault, project)}",
+        f"paths: {json.dumps([str(project.root)], ensure_ascii=False)}",
+        f"updated: {today:%Y-%m-%d}",
+        "---",
+        "",
+    ]
     return "\n".join(lines)
 
 
-def _notes_files(root: Path) -> list[Path]:
-    found = [path for path in (root / "projects").glob(f"*/{NOTES}") if path.is_file()]
-    found += [
-        root / scope / NOTES for scope in ("general", "private") if (root / scope / NOTES).is_file()
-    ]
-    return sorted(path.relative_to(root) for path in found)
-
-
-def _other_files(vault: Path, knowledge: list[Path]) -> list[Path]:
-    """Markdown files in the scope folders that the run has no business writing."""
-    own = {*knowledge, *_notes_files(vault)}
-    return sorted(
+def _watched_files(vault: Path, knowledge: Path | None) -> list[Path]:
+    """Markdown files the run has no business writing: the user's, other projects', old ones."""
+    found = (
         path.relative_to(vault)
-        for scope in SCOPES
-        for path in (vault / scope).rglob("*.md")
-        if path.is_file() and path.relative_to(vault) not in own
+        for folder in _WATCHED
+        for path in (vault / folder).rglob("*.md")
+        if path.is_file()
     )
+    return sorted(relative for relative in found if relative != knowledge)
+
+
+def _topics(vault: Path, target: Path, uncopied: set[Path]) -> list[Path]:
+    """Files of `notes/` before or after the run that are no list or register.
+
+    A file the baseline could not copy has no state to compare with; it is reported once.
+    """
+    candidates = (
+        set(notes_folder_files(vault)) | set(notes_folder_files(target / "files"))
+    ) - uncopied
+    return sorted(relative for relative in candidates if _is_topic(vault, target, relative))
+
+
+def _is_topic(vault: Path, target: Path, relative: Path) -> bool:
+    """A file without a type, or with one the user made up, is a topic; the baseline decides."""
+    kept = target / "files" / relative
+    source = kept if kept.exists() else vault / relative
+    return file_type(source) == "topic"
 
 
 def _guarded(relative: Path | str, step: Callable[[], list[dict]]) -> list[dict]:
@@ -208,39 +260,62 @@ def _guarded(relative: Path | str, step: Callable[[], list[dict]]) -> list[dict]
         ]
 
 
-def _restore_frontmatter(vault: Path, target: Path, relative: Path) -> list[dict]:
+def _restore_keys(vault: Path, target: Path, relative: Path, keys: tuple[str, ...]) -> list[dict]:
     kept = (target / "files" / relative).read_text()
     path = vault / relative
     text = path.read_text() if path.exists() else ""
     expected, actual = parse_frontmatter(kept), parse_frontmatter(text)
-    wrong = sorted(key for key in PROTECTED_KEYS if expected.get(key) != actual.get(key))
+    wrong = sorted(key for key in keys if expected.get(key) != actual.get(key))
     if not wrong:
         return []
     head, rest = _split(text)
-    own = [block for block in _blocks(head or []) if block[0] not in PROTECTED_KEYS]
-    protected = [block for block in _blocks(_split(kept)[0] or []) if block[0] in PROTECTED_KEYS]
+    own = [block for block in _blocks(head or []) if block[0] not in keys]
+    protected = [block for block in _blocks(_split(kept)[0] or []) if block[0] in keys]
     lines = [line for _, block in [*protected, *own] for line in block]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(["---", *lines, "---", ""]) + rest)
+    head_text = "\n".join(["---", *lines, "---", ""]) if lines else ""
+    path.write_text(head_text + rest)
     return [
         {"change": "restored", "file": str(relative), "lead": f"frontmatter: {', '.join(wrong)}"}
     ]
 
 
-def _restore_notes(vault: Path, target: Path, relative: Path) -> list[dict]:
-    kept = (target / "files" / relative).read_bytes()
+def _restore_type(vault: Path, target: Path, relative: Path) -> list[dict]:
+    """The type the file had before the run; a file the run deleted stays gone.
+
+    A file without a type is a topic, so a type the run added is taken back only when it makes
+    the file a list or register.
+    """
     path = vault / relative
-    if path.is_file() and path.read_bytes() == kept:
+    if not path.exists():
         return []
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(kept)
-    return [{"change": "restored", "file": str(relative), "lead": "the user's notes"}]
+    if "type" not in read_frontmatter(target / "files" / relative) and file_type(path) == "topic":
+        return []
+    return _restore_keys(vault, target, relative, ("type",))
 
 
-def _unexpected(vault: Path, target: Path, knowledge: list[Path]) -> list[dict]:
-    before: dict[str, str] = json.loads((target / _HASHES).read_text())
+def _new_note(vault: Path, relative: Path) -> list[dict]:
+    """A file the run created in `notes/`: a topic unless it says otherwise, named by the rules."""
     changes = []
-    for relative in _other_files(vault, knowledge):
+    path = vault / relative
+    if "type" not in read_frontmatter(path):
+        text = path.read_text()
+        head, rest = _split(text)
+        lines = ["type: topic", *(head or [])]
+        path.write_text("\n".join(["---", *lines, "---", ""]) + rest)
+        changes.append({"change": "restored", "file": str(relative), "lead": "frontmatter: type"})
+    if not names.is_clean(relative.stem):
+        changes.append(
+            {"change": "unexpected", "file": str(relative), "lead": "name breaks the naming rules"}
+        )
+    return changes
+
+
+def _unexpected(vault: Path, target: Path, knowledge: Path | None) -> list[dict]:
+    before: dict[str, str] = json.loads((target / _HASHES).read_text())
+    current = _watched_files(vault, knowledge)
+    changes = []
+    for relative in current:
         name = str(relative)
         try:
             digest = _digest(vault / relative)
@@ -253,18 +328,29 @@ def _unexpected(vault: Path, target: Path, knowledge: list[Path]) -> list[dict]:
             changes.append({"change": "unexpected", "file": name, "lead": "created"})
         elif before[name] != digest:
             changes.append({"change": "unexpected", "file": name, "lead": "changed"})
-    current = {str(relative) for relative in _other_files(vault, knowledge)}
+    names_now = {str(relative) for relative in current}
     changes += [
         {"change": "unexpected", "file": name, "lead": "deleted"}
         for name in before
-        if name not in current
+        if name not in names_now
     ]
-    kept_notes = set(_notes_files(target / "files"))
-    changes += [
-        {"change": "unexpected", "file": str(relative), "lead": "created"}
-        for relative in _notes_files(vault)
-        if relative not in kept_notes
-    ]
+    return changes
+
+
+def _topics_written(
+    vault: Path, target: Path, new_notes: list[Path], uncopied: set[Path]
+) -> list[dict]:
+    """A private project's run must not write a topic file: every session lists them."""
+    changes = []
+    for relative in _topics(vault, target, uncopied):
+        path, kept = vault / relative, target / "files" / relative
+        if relative in new_notes:
+            lead = "created by a private project's run"
+        elif path.exists() and kept.exists() and path.read_bytes() != kept.read_bytes():
+            lead = "changed by a private project's run"
+        else:
+            continue
+        changes.append({"change": "unexpected", "file": str(relative), "lead": lead})
     return changes
 
 
