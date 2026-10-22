@@ -27,7 +27,7 @@ claude plugin marketplace add cheorges/dory
 claude plugin install dory@brain
 ```
 
-Restart Claude Code. The vault is `~/Obsidian/dory-brain`; open it in Obsidian with *Open folder as vault*.
+Restart Claude Code. The vault is `~/Obsidian/dory-brain` unless you choose another folder in `/config`; open it in Obsidian with *Open folder as vault*.
 
 ## Use
 
@@ -56,14 +56,17 @@ The worker never changes your notes or the library, and dory snapshots the vault
 
 ## Configure
 
-Optional, in `~/.config/dory-brain/config.toml`:
+In Claude Code: `/config`, then the rows of dory, or `/plugin configure dory@brain`.
 
-```toml
-vault = "~/Obsidian/dory-brain"  # not in iCloud Drive, which offloads files
-language = "English"             # language the notes are written in
-context = "lean"                 # share of the context window the start may take: lean 5 %, balanced 10 %, rich 15 %
-context_window = 200000          # the smallest window you work with, e.g. 1000000
-```
+| Option | Default |
+|---|---|
+| Vault folder | `~/Obsidian/dory-brain` |
+| Note language | `English` |
+| Worker model | `sonnet`, or `haiku` / `opus` |
+| Context at session start | `lean` (5 % of the window), `balanced` (10 %), `rich` (15 %) |
+| Context window (tokens) | `200000`; set `1000000` for 1M windows |
+
+Changes apply at the next start of Claude Code or after `/reload-plugins`. The rarer settings are in the [guide](docs/guide.md#configuration).
 
 ## More
 

@@ -2,6 +2,14 @@
 
 All notable changes to dory are listed here. Versions follow [Semantic Versioning](https://semver.org/); the version lives in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py`, and a test keeps them in sync.
 
+## 0.8.0 (2026-10-22)
+
+dory's main settings are in Claude Code's `/config` ([Record 007](docs/records/007-settings-in-claude-code.md)).
+
+- **Settings in `/config`.** Vault folder, note language, worker model, context at session start and context window appear as rows of dory in `/config` and in `/plugin configure dory@brain`. Claude Code checks a value when you save it and applies it at the next start or after `/reload-plugins`.
+- **opus as worker model.** The worker model can be `sonnet`, `haiku` or `opus`.
+- **config.toml still works.** A value set in Claude Code wins; `~/.config/dory-brain/config.toml` decides what you have not set there, and keeps the rarer settings.
+
 ## 0.7.0 (2026-10-22)
 
 `private/` becomes `library/`, and `/dory:library` files knowledge there in a dialog ([Record 006](docs/records/006-library.md)).

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from dory.config import load_config
@@ -42,3 +43,86 @@ def test_a_summary_is_at_most_10000_tokens_and_80_percent_of_a_small_limit(tmp_p
     assert target_chars(small) == threshold_chars(small) == 4800
     lean = config_from(tmp_path, "")
     assert digest("text", "work", lean) != digest("text", "work", rich)
+
+
+def claude_settings(tmp_path: Path, configs: dict) -> Path:
+    path = tmp_path / "claude" / "settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"theme": "dark", "pluginConfigs": configs}))
+    return path
+
+
+def test_options_set_in_claude_code_win_over_config_toml(tmp_path):
+    toml = tmp_path / "config.toml"
+    toml.write_text('vault = "~/old"\nlanguage = "German"\ncontext = "rich"\nsnapshots_keep = 7\n')
+    settings = claude_settings(
+        tmp_path,
+        {
+            "dory@brain": {"options": {"vault": "/v", "model": "opus", "context_window": 1000000}},
+            "other@brain": {"options": {"model": "haiku"}},
+        },
+    )
+
+    config = load_config({"DORY_CONFIG": str(toml), "DORY_CLAUDE_SETTINGS": str(settings)})
+
+    assert config.vault == Path("/v") and config.model == "opus"
+    assert config.context_window == 1_000_000
+    assert (config.language, config.context, config.snapshots_keep) == ("German", "rich", 7)
+
+
+def test_hook_variables_count_where_settings_have_no_value(tmp_path):
+    settings = claude_settings(tmp_path, {"dory@elsewhere": {"options": {"language": "French"}}})
+
+    config = load_config(
+        {
+            "DORY_CONFIG": str(tmp_path / "none.toml"),
+            "DORY_CLAUDE_SETTINGS": str(settings),
+            "CLAUDE_PLUGIN_OPTION_LANGUAGE": "Italian",
+            "CLAUDE_PLUGIN_OPTION_CONTEXT": "balanced",
+            "CLAUDE_PLUGIN_OPTION_CONTEXT_WINDOW": "not a number",
+        }
+    )
+
+    assert config.language == "French"  # the file is current, the variables date from the start
+    assert config.context == "balanced"
+    assert config.context_window == 200_000
+
+
+def test_dory_vault_still_overrides_everything(tmp_path):
+    settings = claude_settings(tmp_path, {"dory@brain": {"options": {"vault": "/v"}}})
+
+    config = load_config(
+        {
+            "DORY_CONFIG": str(tmp_path / "none.toml"),
+            "DORY_CLAUDE_SETTINGS": str(settings),
+            "DORY_VAULT": "/w",
+        }
+    )
+
+    assert config.vault == Path("/w")
+
+
+def test_unreadable_settings_or_empty_options_leave_the_defaults(tmp_path):
+    broken = tmp_path / "broken.json"
+    broken.write_text("{not json")
+    empty = claude_settings(tmp_path, {"dory@brain": {"options": {"language": ""}}})
+
+    for path in (broken, empty, tmp_path / "missing.json"):
+        config = load_config(
+            {"DORY_CONFIG": str(tmp_path / "none.toml"), "DORY_CLAUDE_SETTINGS": str(path)}
+        )
+        assert (config.language, config.model) == ("English", "sonnet")
+
+
+def test_the_manifest_declares_exactly_the_options_dory_reads():
+    from dory.config import PLUGIN_OPTIONS
+
+    manifest = json.loads(
+        (Path(__file__).resolve().parents[1] / "plugin/.claude-plugin/plugin.json").read_text()
+    )
+    options = manifest["userConfig"]
+    assert tuple(options) == PLUGIN_OPTIONS
+    assert options["model"]["options"] == ["sonnet", "haiku", "opus"]
+    assert options["context"]["options"] == ["lean", "balanced", "rich"]
+    assert options["model"]["default"] == "sonnet" and options["context"]["default"] == "lean"
+    assert all("default" not in options[name] for name in ("vault", "language", "context_window"))

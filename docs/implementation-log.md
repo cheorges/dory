@@ -773,3 +773,13 @@ All three verdicts `correct`; the security auditor found every way into a work p
 **Checked.** `uv run pytest -q` and `ruff check` green. Live (Haiku): library and note checks three of three; a forced Edit of a library entry through `/dory:note` blocked by the guard; the worker's deny probe on `library/**`; the rule checks "knowledge lands in its scope" and "a library entry never reaches a topic file".
 
 **Review findings (one pass, architect and code reviewer, both `correct`).** Six, all fixed with a test that fails on the code before; listed in Record 006 under Implementation Notes. Added at the same time: `add-note` and `library-write` refuse `"`, `$` and backticks in names, and tests that a project note's property loads only in its project and a link into `private/` loads nothing. The README became a short page with the idea and the commands; the details moved unchanged into `docs/guide.md`.
+
+## Record 007: settings in Claude Code (2026-10-22)
+
+**User story.** As a user, I want dory's main settings in Claude Code's `/config`, with opus as a worker model, so that I find and change them where Claude Code's own are.
+
+**Implementation.** `plugin.json` declares `userConfig` (vault, language, model, context, context_window). `config.plugin_options` reads `pluginConfigs` from Claude Code's `settings.json` and the `CLAUDE_PLUGIN_OPTION_*` variables for what the file lacks; `load_config` puts them over config.toml. `tests/conftest.py` points `DORY_CLAUDE_SETTINGS` at an empty file and drops the option variables. The hook commands quote `${CLAUDE_PLUGIN_ROOT}`.
+
+**Decisions and reasoning.** Record 007: the probe showed that only set options reach hooks and `settings.json`, and that skills get no variables, hence reading the file.
+
+**Checked.** 293 unit tests and ruff; `claude plugin validate plugin`; end to end in an isolated `CLAUDE_CONFIG_DIR`: the plugin installed from the repo, five values set with `claude plugin configure`, read back by `load_config`; an invalid model refused by Claude Code.

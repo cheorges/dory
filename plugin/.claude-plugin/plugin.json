@@ -1,11 +1,43 @@
 {
   "name": "dory",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Second brain for Claude Code: sessions become Obsidian notes, recalled at session start",
   "author": {
     "name": "cheorges",
     "url": "https://github.com/cheorges"
   },
   "homepage": "https://github.com/cheorges/dory",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "userConfig": {
+    "vault": {
+      "type": "directory",
+      "title": "Vault folder",
+      "description": "The Obsidian vault dory writes into. Not in iCloud Drive, which offloads files. Unset: config.toml, else ~/Obsidian/dory-brain."
+    },
+    "language": {
+      "type": "string",
+      "title": "Note language",
+      "description": "The language dory writes the notes in, e.g. German. Headings stay English. Unset: config.toml, else English."
+    },
+    "model": {
+      "type": "string",
+      "title": "Worker model",
+      "description": "The model that turns ended sessions into notes. haiku uses far less of your usage limit, opus the most. Until you set it here, config.toml decides, else sonnet.",
+      "options": ["sonnet", "haiku", "opus"],
+      "default": "sonnet"
+    },
+    "context": {
+      "type": "string",
+      "title": "Context at session start",
+      "description": "How much of the context window the session start may load: lean 5 %, balanced 10 %, rich 15 %. Until you set it here, config.toml decides, else lean.",
+      "options": ["lean", "balanced", "rich"],
+      "default": "lean"
+    },
+    "context_window": {
+      "type": "number",
+      "title": "Context window (tokens)",
+      "description": "The smallest context window you work with, e.g. 1000000 for 1M windows. Unset: config.toml, else 200000.",
+      "min": 10000
+    }
+  }
 }

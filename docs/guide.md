@@ -60,27 +60,39 @@ dory link --entry "library/Python/Package management.md" notes/Python.md     # a
 
 ## Configuration
 
-Create `~/.config/dory-brain/config.toml` to change a default:
+The main settings are in Claude Code: run `/config` and look for the rows of dory, or `/plugin configure dory@brain`. Claude Code checks each value when you save it, stores it in its `settings.json` under `pluginConfigs`, and applies it at the next start of Claude Code (or after `/reload-plugins`).
 
-```toml
-vault = "~/Obsidian/dory-brain"  # where the notes live; not in iCloud Drive, which offloads files
-language = "English"             # language the notes are written in, e.g. "German"
-model = "sonnet"                 # worker model; "haiku" uses far less of your usage limit
-context = "lean"                 # how much of the context window the session start may take
-context_window = 200000          # tokens; set it to the smallest window you work with, e.g. 1000000
-```
+| Option | Default | What it sets |
+|---|---|---|
+| Vault folder | `~/Obsidian/dory-brain` | Where the notes live. Not in iCloud Drive, which offloads files. |
+| Note language | `English` | The language the notes are written in, e.g. `German`. Headings stay English. |
+| Worker model | `sonnet` | The model that turns ended sessions into notes: `sonnet`, `haiku` (far less of your usage limit) or `opus` (the most). |
+| Context at session start | `lean` | How much of the context window the session start may load (table below). |
+| Context window (tokens) | `200000` | The smallest context window you work with, e.g. `1000000`. |
 
-| `context` | Share of the window | at 200,000 tokens | at 1,000,000 tokens |
+| Context at session start | Share of the window | at 200,000 tokens | at 1,000,000 tokens |
 |---|---|---|---|
 | `lean` (default) | 5 % | 10,000 tokens | 50,000 tokens |
 | `balanced` | 10 % | 20,000 tokens | 100,000 tokens |
 | `rich` | 15 % | 30,000 tokens | 150,000 tokens |
 
-The share is a maximum; a project with little knowledge loads less. Claude Code does not tell dory which model a session runs, so set `context_window` to the smallest window you use. A larger value lets dory take more than the share you chose.
+The share is a maximum; a project with little knowledge loads less. Claude Code does not tell dory which model a session runs, so set the context window to the smallest window you use. A larger value lets dory take more than the share you chose.
+
+The same five settings, and the advanced ones below, can also go into `~/.config/dory-brain/config.toml`. A value set in Claude Code wins; the file decides only what you have not set there. Until you set them, `/config` shows `sonnet` and `lean` as defaults even when the file says otherwise, because a choice list needs a default.
+
+```toml
+vault = "~/Obsidian/dory-brain"
+language = "German"
+model = "opus"
+context = "balanced"
+context_window = 1000000
+```
 
 `DORY_VAULT` and `DORY_STATE_DIR` override the vault and the state directory.
 
 ### Advanced settings
+
+These are set only in `~/.config/dory-brain/config.toml`.
 
 | Setting | Default | Purpose |
 |---|---|---|
