@@ -14,13 +14,13 @@ Python 3.12+ as uv scripts (PEP 723), pytest; Claude Code plugin `dory` (hooks, 
 
 | Story | Status | Notes |
 |-------|--------|-------|
-| Test 0.8.0 in daily use | Open | Install 0.8.0, set the dory options in `/config` (context window 1000000 if the sessions run with 1M windows), and `/reload-plugins` in every open window. The vault and the state's snapshots, transcripts, bundles and summaries were emptied on 2026-10-22, so everything in it comes from 0.7.0 on. Watch: topic files in `notes/` (title, one subject each, no duplicates), the user's notes untouched, `/dory:library` (proposals, links, entries loading where linked), `dory status` for unexpected changes, and how much the session start loads |
+| Test 0.9.0 in daily use | Open | Install 0.9.0, set the dory options in `/config` (context window 1000000 if the sessions run with 1M windows), and `/reload-plugins` in every open window. The vault and the state's snapshots, transcripts, bundles and summaries were emptied on 2026-10-22, so everything in it comes from 0.7.0 on. Watch: topic files in `notes/` (title, one subject each, no duplicates), the user's notes untouched, `/dory:library` (proposals, links, entries loading where linked), `dory status` for unexpected changes, and how much the session start loads |
 
 **Legend:** Open | Designed | In Progress | Done
 
 Records 001 to 007 are released; versions are in [CHANGELOG.md](CHANGELOG.md). A release tag sits on the commit on `main` that releases it (the merge commit of its pull request, or the release commit itself when it went directly on `main`, as 0.7.0 did).
 
-**Next Step:** The steps of "Test 0.8.0 in daily use". Releasing: while dory is at 0.x, every release raises the minor version (0.9.0, 0.10.0), never the patch version; bump it in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request with a merge commit, tag `vX.Y.Z` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
+**Next Step:** The steps of "Test 0.9.0 in daily use". Releasing: while dory is at 0.x, every release raises the minor version (0.9.0, 0.10.0), never the patch version; bump it in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py` (a test keeps them equal), add a CHANGELOG entry, merge through a pull request with a merge commit, tag `vX.Y.Z` and push the tag; locally `claude plugin marketplace update brain && claude plugin update dory@brain`, then restart or `/reload-plugins` in every running session.
 
 ### Future
 
