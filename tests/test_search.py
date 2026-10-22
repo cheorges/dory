@@ -1,4 +1,4 @@
-"""Record 003, Story S6: `dory search` finds single entries of the knowledge and notes files."""
+"""`dory search` finds single entries and whole notes anywhere in the vault."""
 
 import os
 import subprocess
@@ -56,19 +56,16 @@ def world(tmp_path):
     for repo in (hub, household):
         project_for_root(repo, projects_file)
     write(vault, f"{HUB}/knowledge.md", HUB_KNOWLEDGE)
-    write(vault, f"{HUB}/notes.md", "---\ntype: notes\n---\n- 2026-10-19: Loki port 3100 clashes\n")
+    write(
+        vault, f"{HUB}/notes/Loki and Grafana.md", "---\ntype: note\n---\nLoki port 3100 clashes\n"
+    )
     write(
         vault,
-        "general/knowledge.md",
-        "---\ntype: knowledge\ndomain: work\n---\n## How-to\n"
+        "notes/Python.md",
+        "---\ntype: topic\n---\n## How-to\n"
         "- **Deploy Python tools with uv instead of pip.** uv runs PEP 723 scripts.\n",
     )
-    write(
-        vault,
-        "private/knowledge.md",
-        "---\ntype: knowledge\ndomain: private\n---\n## Facts\n"
-        "- **The home NAS deploys its backup at 02:00.** Synology Hyper Backup.\n",
-    )
+    write(vault, "private/family/Taxes.md", "The tax return is deployed to the office in May.\n")
     write(
         vault,
         "projects/haushalt/knowledge.md",
@@ -93,15 +90,15 @@ def test_a_matching_entry_is_a_hit_with_its_file_and_its_neighbour_is_not(world)
         and "Pitfalls" in line
         for line in lines
     ), text
-    assert "Grafana" not in text
+    assert "Grafana dashboards" not in text
 
 
 def test_a_lead_hit_comes_before_a_hit_in_the_text_only(world):
     config, hub, _, _ = world
     write(
         config.vault,
-        "general/knowledge.md",
-        "---\ntype: knowledge\ndomain: work\n---\n## Facts\n"
+        "notes/Promtail.md",
+        "---\ntype: topic\n---\n## Facts\n"
         "- **Promtail ships the container logs.** It pushes them to Loki.\n",
     )
 
@@ -112,17 +109,15 @@ def test_a_lead_hit_comes_before_a_hit_in_the_text_only(world):
     assert lead < text_only
 
 
-def test_a_note_of_the_user_is_shown_whole(world):
+def test_a_project_note_and_a_list_are_one_hit_each_with_their_title(world):
     config, hub, _, _ = world
-    long = (
-        "Loki port 3100 clashes with Grafana on the customer VMs, so Loki runs on 3200 there "
-        "and the dashboards point to the new port"
-    )
-    write(config.vault, f"{HUB}/notes.md", f"---\ntype: notes\n---\n- 2026-10-19: {long}\n")
+    note(config.vault, "notes/Shopping list.md", {"type": "list"}, "- [ ] Loki mug")
 
     text = search(config, hub, "loki")
 
-    assert f"- 2026-10-19: {long} → {HUB}/notes.md" in text
+    assert f"- Loki and Grafana (note) → {HUB}/notes/Loki and Grafana.md" in text
+    assert "- Shopping list (list) → notes/Shopping list.md" in text
+    assert text.count("- Loki and Grafana (note)") == 1
 
 
 def test_a_list_saved_with_a_byte_order_mark_is_found(world):
@@ -131,10 +126,8 @@ def test_a_list_saved_with_a_byte_order_mark_is_found(world):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("---\ntype: list\nsummary: Shopping\n---\n- [ ] Loki mug\n", "utf-8-sig")
 
-    knowledge = config.vault / "general" / "knowledge.md"
-    knowledge.write_text(
-        "---\ntype: knowledge\ndomain: work\n---\n## Facts\n- **Loki.**\n", "utf-8-sig"
-    )
+    topic = config.vault / "notes" / "Loki.md"
+    topic.write_text("---\ntype: topic\n---\n## Facts\n- **Loki knowledge.**\n", "utf-8-sig")
 
     text = search(config, home, "loki knowledge")
 
@@ -142,30 +135,33 @@ def test_a_list_saved_with_a_byte_order_mark_is_found(world):
     assert "type: knowledge" not in text
 
 
-def test_in_a_work_project_nothing_private_is_shown(world):
-    config, hub, _, _ = world
+def test_every_session_searches_the_whole_vault_private_included(world):
+    config, hub, household, home = world
 
-    text = search(config, hub, "deploy")
-
-    assert "uv instead of pip" in text
-    assert "Loki only starts" in text
-    assert "NAS" not in text
-    assert "rent" not in text
-    assert "private/" not in text.split("\n", 1)[1]
-    assert "haushalt" not in text
-
-
-def test_outside_a_repository_and_in_a_private_project_both_domains_are_shown(world):
-    config, _, household, home = world
-
-    for cwd in (home, household):
+    for cwd in (hub, household, home):
         text = search(config, cwd, "deploy")
-        assert "The home NAS deploys its backup at 02:00." in text
+        assert "- Taxes (private note) → private/family/Taxes.md" in text
         assert "projects/haushalt/knowledge.md" in text
         assert "uv instead of pip" in text
+        assert "Loki only starts" in text
 
 
-def test_session_notes_and_lists_are_found_by_their_own_domain(world):
+def test_a_topic_file_is_searched_entry_by_entry(world):
+    config, hub, _, _ = world
+    write(
+        config.vault,
+        "notes/Notion.md",
+        "## Pitfalls\n- **Overwriting a page deletes its databases.** Append instead.\n"
+        "- **The API returns 100 blocks per call.** Page through the rest.\n",
+    )
+
+    text = search(config, hub, "databases")
+
+    assert "Overwriting a page deletes its databases." in text
+    assert "100 blocks" not in text
+
+
+def test_session_notes_and_lists_are_found_in_every_session(world):
     config, hub, _, home = world
     vault = config.vault
     note(
@@ -189,12 +185,11 @@ def test_session_notes_and_lists_are_found_by_their_own_domain(world):
     work = search(config, hub, "loki")
     outside = search(config, home, "loki")
 
-    assert "Loki volume repaired on staging" in work
-    assert "notes/customers.md" in work
-    assert "figurine" not in work
-    assert "shopping-list" not in work
-    assert "Loki figurine ordered for the kids" in outside
-    assert "notes/shopping-list.md" in outside
+    for text in (work, outside):
+        assert "Loki volume repaired on staging" in text
+        assert "notes/customers.md" in text
+        assert "Loki figurine ordered for the kids" in text
+        assert "notes/shopping-list.md" in text
 
 
 def test_notes_and_overviews_of_an_earlier_version_are_not_shown(world):
@@ -207,12 +202,17 @@ def test_notes_and_overviews_of_an_earlier_version_are_not_shown(world):
         {"type": "gotcha", "domain": "work", "summary": "Old Loki single note"},
     )
     note(vault, "general/loki-in-general.md", {"type": "fact", "summary": "Old Loki fact"})
+    write(vault, "general/knowledge.md", "---\ntype: knowledge\n---\n- **Old general Loki.** x\n")
+    write(vault, f"{HUB}/notes.md", "---\ntype: notes\n---\n- 2026-10-19: Old Loki note\n")
+    note(vault, "notes/archive/Loki.md", {"type": "topic", "summary": "Archived Loki"})
+    write(vault, "notes/loki.txt", "Loki in a text file\n")
 
     for cwd in (hub, home):
         text = search(config, cwd, "loki")
-        assert "Old Loki" not in text
+        assert "Old Loki" not in text and "Old general Loki" not in text
         assert "Loki overview" not in text
         assert "ai-assistant-hub.md" not in text
+        assert "Archived Loki" not in text and "loki.txt" not in text
 
 
 def test_no_hits_are_said_explicitly(world):
@@ -228,7 +228,7 @@ def test_a_file_removed_during_the_search_is_skipped(world, monkeypatch):
     real = search_module._read
 
     def vanishing(path: Path) -> str:
-        if path.name == "notes.md":
+        if path.name == "Loki and Grafana.md":
             return ""
         return real(path)
 

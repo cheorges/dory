@@ -1,20 +1,23 @@
-"""SessionStart: build the memory that is injected into a new session (Record 003).
+"""SessionStart: build the memory that is injected into a new session.
 
-The session start reads fixed paths and never scans the vault. In this order:
+The session start reads the files of its context and the titles in `notes/`, nothing else of
+the vault. In this order:
 1. header and project line, the `summary` of the project's `knowledge.md`
 2. sessions of this project still waiting in the queue: their knowledge is not in the vault yet
-3. the `notes.md` and `knowledge.md` of the context (`scopes.context_files`), each under its
-   path with its own headings one level down
-4. the paths of the lists and registers under `notes/`
+3. in a known project, its notes by name, each followed by the private notes it links first,
+   then its `knowledge.md` (`context.loaded_files`), each under its path with its own headings
+   one level down
+4. one line per file in `notes/`, topics, lists and registers, most recently updated first:
+   Claude reads a file when the session touches its subject
 
-The limit `recall_budget_tokens` covers the whole text; header, project line, queue lines and
-paths keep their room first. Over it, when the files exceed the summary's target, the summary
-the worker made of them loads instead, followed by their paths; a missing or stale summary is
-asked for with a mark and a worker start, and the session start never waits for it. Without a
-usable summary, or when only the other parts pushed the text over, the files are cut in load
-order with a marker. In a work project nothing from `private/` appears, not even a path or a
-private list; outside a repository both domains do. The boundary filters what is injected, it
-is no access control: Claude can still read the vault.
+The limit `recall_budget_tokens` covers the whole text. Header, project line and queue lines
+keep their room first, and room for the line that closes a cut list of titles. When the files
+do not fit, the summary the worker made of them loads instead once they exceed the summary's
+target, followed by their paths; a missing or stale summary is asked for with a mark and a
+worker start, and the session start never waits for it. Without a usable summary the files are
+cut in load order with a marker. The titles fill what is left. In a work project nothing from
+`private/` appears unless one of the user's project notes links it. The boundary filters what is
+injected, it is no access control: Claude can still read the vault.
 """
 
 import contextlib
@@ -34,8 +37,9 @@ CUT_MARKER = "[... cut at the limit of the session start ...]"
 SUMMARY_TITLE = "## Summary of the files below (made by dory)"
 STALE = "(The files changed since this summary was made; read them for what is new.)"
 PATHS_TITLE = "## The files in full (read if needed)"
+NOTES_TITLE = "## Notes without a project (read a file when the session touches its subject)"
+LEFT_OUT = "- {count} more in notes/: list the folder for them"
 SESSION_FILE_MAX_AGE_DAYS = 30
-_CATALOG_TYPES = {"list", "register"}
 
 
 @dataclass
@@ -73,21 +77,24 @@ def recall(hook: dict, config: Config) -> str:
     ctx = summary.context_for(vault, project)
     lead = [_project_section(project, vault), _queue_section(project, cwd, state)]
     texts = context.file_texts(vault, ctx.files)
-    lists = _lists_section(vault, ctx.domain == "private")
-    if not texts and not any(_render(section) for section in (*lead, lists)):
+    notes = _notes_section(vault)
+    if not texts and not any(_render(section) for section in (*lead, notes)):
         return ""
     head = _Section("", [HEADER, f"Vault: {vault}"])
     files_text = context.text(texts)
-    blocks = [_render(head), *map(_render, lead), files_text, _render(lists)]
-    whole = "\n\n".join(block for block in blocks if block)
+    front = [_render(head), *map(_render, lead)]
+    whole = "\n\n".join(block for block in [*front, files_text, _render(notes)] if block)
     limit = summary.limit_chars(config)
     if len(whole) <= limit:
         return whole
     files = [_Section(context.heading(path), text.splitlines()) for path, text in texts.items()]
-    if summary.needs_summary(files_text, config):
-        files = _summary_or_files(state, ctx, files_text, config, files)
-    paths = [f"- {path.as_posix()}" for path in texts]
-    return _fit([head, *lead], files, [_Section(PATHS_TITLE, paths), lists], limit)
+    paths: list[_Section] = []
+    within = "\n\n".join(block for block in [*front, files_text] if block)
+    if len(within) > _Budget(limit - _reserve(notes)).left:  # the files themselves do not fit
+        if summary.needs_summary(files_text, config):
+            files = _summary_or_files(state, ctx, files_text, config, files)
+        paths = [_Section(PATHS_TITLE, [f"- {path.as_posix()}" for path in texts])]
+    return _fit([head, *lead], files, paths, notes, limit)
 
 
 def hook_output(context: str) -> str:
@@ -142,16 +149,28 @@ def _queue_section(project: Project | None, cwd: Path, state: StateDir) -> _Sect
     return _Section("## Not processed yet (read the transcript if needed)", waiting)
 
 
-def _lists_section(vault: Path, private: bool) -> _Section:
-    """Lists and registers are private unless they say otherwise (dory:rules)."""
-    entries = []
-    for path in sorted((vault / "notes").glob("*.md")):
+def _notes_section(vault: Path) -> _Section:
+    """Every file in `notes/`, most recently updated first; a list or register says so."""
+    found = []
+    for relative in scopes.notes_folder_files(vault):
+        path = vault / relative
         meta = read_frontmatter(path)
-        if str(meta.get("type", "")) not in _CATALOG_TYPES:
-            continue
-        if private or (meta.get("domain") or "private") != "private":
-            entries.append(f"- {path.stem}: {path.relative_to(vault).as_posix()}")
-    return _Section("## Lists and registers (not loaded; read if needed)", entries)
+        kind = str(meta.get("type", ""))
+        label = f" ({kind})" if kind in scopes.LIST_TYPES else ""
+        found.append((_updated(path, meta), f"- {relative.stem}{label}: {relative.as_posix()}"))
+    found.sort(key=lambda item: item[1])
+    found.sort(key=lambda item: item[0], reverse=True)
+    return _Section(NOTES_TITLE, [line for _, line in found])
+
+
+def _updated(path: Path, meta: dict[str, object]) -> str:
+    """The file's `updated` date, else the day it was last written."""
+    if meta.get("updated"):
+        return str(meta["updated"])
+    try:
+        return time.strftime("%Y-%m-%d", time.localtime(path.stat().st_mtime))
+    except OSError:
+        return ""
 
 
 def _summary_or_files(
@@ -162,7 +181,7 @@ def _summary_or_files(
     A missing or stale summary is asked for; the worker makes it in the background.
     """
     saved = summary.load(state, ctx.name)
-    usable = saved is not None and saved.domain == ctx.domain
+    usable = saved is not None and saved.fits(ctx)
     fresh = usable and saved.hash == summary.digest(text, ctx.domain, config)
     if not fresh:
         summary.mark(state, ctx.name)
@@ -174,14 +193,22 @@ def _summary_or_files(
     return [_Section(SUMMARY_TITLE, lines if fresh else [STALE, "", *lines])]
 
 
-def _fit(front: list[_Section], body: list[_Section], tail: list[_Section], limit: int) -> str:
-    """Front and tail take their room first; the body fills what is left, line by line.
+def _fit(
+    front: list[_Section],
+    body: list[_Section],
+    paths: list[_Section],
+    notes: _Section,
+    limit: int,
+) -> str:
+    """Front and paths take their room first, with room kept for the titles' heading and
+    closing line; the files fill what is left, line by line, and the titles get the rest.
 
-    The body stops at the first line that does not fit, and nothing later fills the gap.
+    The files stop at the first line that does not fit, and nothing later fills the gap.
     """
-    budget = _Budget(limit)
+    reserve = _reserve(notes)
+    budget = _Budget(limit - reserve)
     first = _fill(front, budget)
-    last = _fill(tail, budget)
+    listed = _fill(paths, budget)
     loaded = []
     for section in body:
         block = _fill_section(section, budget)
@@ -191,7 +218,38 @@ def _fit(front: list[_Section], body: list[_Section], tail: list[_Section], limi
             loaded.append(block)
         if budget.cut:
             break
-    return "\n\n".join([*first, *loaded, *([CUT_MARKER] if budget.cut else []), *last])
+    cut = budget.cut
+    left = budget.left + reserve + (0 if cut else len(CUT_MARKER) + 2)
+    titles = _fill_titles(notes, left)
+    blocks = [*first, *loaded, *([CUT_MARKER] if cut else []), *listed, titles]
+    return "\n\n".join(block for block in blocks if block)
+
+
+def _reserve(notes: _Section) -> int:
+    """Room the titles' heading and closing line keep against the files."""
+    if not notes.entries:
+        return 0
+    return len(notes.title) + len(LEFT_OUT.format(count=len(notes.entries))) + 3
+
+
+def _fill_titles(notes: _Section, left: int) -> str:
+    """The titles in their order while they fit, then one line for the ones left out."""
+    if not notes.entries:
+        return ""
+    count = len(notes.entries)
+    closing = len(LEFT_OUT.format(count=count)) + 1
+    left -= len(notes.title) + 2  # the heading and the blank line before the block
+    lines = [notes.title]
+    for index, entry in enumerate(notes.entries):
+        last = index == count - 1
+        if len(entry) + 1 + (0 if last else closing) > left:
+            break
+        lines.append(entry)
+        left -= len(entry) + 1
+    shown = len(lines) - 1
+    if shown < count:
+        lines.append(LEFT_OUT.format(count=count - shown))
+    return "\n".join(lines)
 
 
 def _trim(block: str) -> str:

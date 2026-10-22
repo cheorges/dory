@@ -1,9 +1,10 @@
-"""Where knowledge lives in the vault: one knowledge file and one notes file per scope.
+"""Where things live in the vault.
 
-A scope is a project (`projects/<name>/`), `general/` for knowledge without a project in the
-work domain, or `private/` for the private domain. The worker writes `knowledge.md`; the user
-writes `notes.md` through /dory:note. Any other file in these folders is from an earlier
-version of dory and is neither read nor written.
+A project keeps its knowledge in `projects/<name>/knowledge.md`, which the worker writes, and
+the user's notes in `projects/<name>/notes/`, one file each. Everything without a project lives
+in `notes/`: topic files the worker maintains, lists and registers. `private/` belongs to the
+user. Any other file in a project folder is from an earlier version of dory and is neither read
+nor written.
 """
 
 from pathlib import Path
@@ -12,36 +13,36 @@ from dory.frontmatter import read_frontmatter
 from dory.project import Project
 
 KNOWLEDGE = "knowledge.md"
-NOTES = "notes.md"
-SCOPES = ("projects", "general", "private")
+NOTES_FOLDER = "notes"  # in the vault for everything without a project, in a project for its notes
+PRIVATE = "private"
+LIST_TYPES = frozenset({"list", "register"})
 
 
-def knowledge_files(project: Project | None, domain: str = "work") -> list[Path]:
-    """Vault-relative paths of the knowledge files a worker run may write.
-
-    A private project's session never writes `general/`, which every work session loads.
-    """
-    files = [Path("general") / KNOWLEDGE, Path("private") / KNOWLEDGE]
-    if domain == "private":
-        files.remove(Path("general") / KNOWLEDGE)
-    if project and project.name:
-        files.insert(0, Path("projects") / project.name / KNOWLEDGE)
-    return files
+def knowledge_file(project: Project | None) -> Path | None:
+    """The project's `knowledge.md`, the one file in its folder the worker writes."""
+    if project is None or not project.name:
+        return None
+    return Path("projects") / project.name / KNOWLEDGE
 
 
-def context_files(project: Project | None, domain: str = "work") -> list[Path]:
-    """Vault-relative paths a session start loads, in load order: notes before knowledge.
+def notes_folder_files(root: Path) -> list[Path]:
+    """The files of `notes/` under `root` that count: the `.md` files at its top level."""
+    folder = root / NOTES_FOLDER
+    return sorted(path.relative_to(root) for path in folder.glob("*.md") if path.is_file())
 
-    A project loads its own folder and `general/`, a private one `private/` as well. Outside
-    a repository `general/` and `private/` load; a repository dory does not know yet loads
-    `general/`.
-    """
-    folders = [Path("general")]
-    if project is None or domain == "private":
-        folders.append(Path("private"))
-    if project and project.name:
-        folders.insert(0, Path("projects") / project.name)
-    return [folder / name for folder in folders for name in (NOTES, KNOWLEDGE)]
+
+def project_notes(vault: Path, project: Project | None) -> list[Path]:
+    """The user's notes for a project: the `.md` files at the top level of its `notes/`."""
+    if project is None or not project.name:
+        return []
+    folder = vault / "projects" / project.name / NOTES_FOLDER
+    return sorted(path.relative_to(vault) for path in folder.glob("*.md") if path.is_file())
+
+
+def file_type(path: Path) -> str:
+    """The kind of a file in `notes/`: a list, a register, or else a topic."""
+    kind = str(read_frontmatter(path).get("type", ""))
+    return kind if kind in LIST_TYPES else "topic"
 
 
 def project_domain(vault: Path, project: Project | None) -> str:
@@ -57,11 +58,3 @@ def project_domain(vault: Path, project: Project | None) -> str:
     if not source.exists():
         source = folder / f"{project.name}.md"
     return "private" if read_frontmatter(source).get("domain") == "private" else "work"
-
-
-def notes_files(vault: Path, project: Project | None) -> list[Path]:
-    """Vault-relative paths of the existing notes files a run reads for its scopes."""
-    scopes = [Path("general"), Path("private")]
-    if project and project.name:
-        scopes.insert(0, Path("projects") / project.name)
-    return [scope / NOTES for scope in scopes if (vault / scope / NOTES).is_file()]

@@ -24,7 +24,7 @@ KNOWLEDGE = (
     "---\ntype: knowledge\ndomain: work\nsummary: KoliChat platform\n---\n## Facts\n"
     "- **Loki listens on port 3100.** Set in the compose file.\n"
 )
-PROJECT_NOTES = "---\ntype: notes\n---\n- 2026-10-01: Deploys only after the customer's ok\n"
+DEPLOY_RULES = "---\ntype: note\ncreated: 2026-10-01\n---\nDeploys only after the customer's ok.\n"
 
 
 @pytest.fixture
@@ -39,7 +39,7 @@ def world(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     write(vault / "projects" / HUB / "knowledge.md", KNOWLEDGE)
-    write(vault / "projects" / HUB / "notes.md", PROJECT_NOTES)
+    write(vault / "projects" / HUB / "notes" / "Deploy rules.md", DEPLOY_RULES)
     return vault, state, hub.resolve(), home
 
 
@@ -48,13 +48,16 @@ def write(path: Path, text: str) -> None:
     path.write_text(text)
 
 
-def note(vault: Path, state: StateDir, cwd: Path, text: str) -> dict:
-    output = run_skill(vault, state, cwd, f'/dory:note "{text}"')
+def note(vault: Path, state: StateDir, cwd: Path, text: str, *, after: str = "") -> dict:
+    """`/dory:note` in a session that first went through `after`, if given."""
+    if after:
+        run_skill(vault, state, cwd, f"{after} Reply only with OK.")
+    output = run_skill(vault, state, cwd, f'/dory:note "{text}"', resume=bool(after))
     assert list((state.root / "snapshots").iterdir()), "no snapshot before writing"
     return output
 
 
-def run_skill(vault: Path, state: StateDir, cwd: Path, prompt: str) -> dict:
+def run_skill(vault: Path, state: StateDir, cwd: Path, prompt: str, resume: bool = False) -> dict:
     env = {
         **os.environ,
         "DORY_VAULT": str(vault),
@@ -63,6 +66,7 @@ def run_skill(vault: Path, state: StateDir, cwd: Path, prompt: str) -> dict:
     }
     command = [
         "claude", "-p", prompt,
+        *(["--continue"] if resume else []),
         "--plugin-dir", str(PLUGIN),
         "--setting-sources", "project",
         "--strict-mcp-config",
@@ -76,47 +80,84 @@ def run_skill(vault: Path, state: StateDir, cwd: Path, prompt: str) -> dict:
     return output
 
 
-def notes_files(vault: Path) -> dict[str, str]:
-    return {
-        str(path.relative_to(vault)): path.read_text() for path in sorted(vault.rglob("notes.md"))
-    }
+def vault_files(vault: Path) -> dict[str, str]:
+    return {str(path.relative_to(vault)): path.read_text() for path in sorted(vault.rglob("*.md"))}
 
 
-def test_a_note_in_a_project_goes_into_its_notes_in_the_users_words(world):
+def test_a_note_in_a_project_is_a_new_file_with_a_telling_title_and_its_content(world):
     vault, state, hub, _ = world
+    before = vault_files(vault)
 
-    output = note(vault, state, hub, "Loki port 3100 clashes with Grafana")
+    output = note(
+        vault,
+        state,
+        hub,
+        "how we solved the Loki port",
+        after=(
+            "We just solved it: on the customer VMs Grafana takes port 3100, so we moved Loki to "
+            "port 3200 in the compose file and pointed every dashboard at loki:3200."
+        ),
+    )
 
-    notes = (vault / "projects" / HUB / "notes.md").read_text()
-    assert notes.startswith(PROJECT_NOTES), notes
-    assert notes.endswith(": Loki port 3100 clashes with Grafana\n"), notes
-    assert (vault / "projects" / HUB / "knowledge.md").read_text() == KNOWLEDGE
-    assert list(notes_files(vault)) == [f"projects/{HUB}/notes.md"]
-    assert f"{HUB}/notes.md" in output["result"], output["result"]
+    new = {path: text for path, text in vault_files(vault).items() if path not in before}
+    assert len(new) == 1, (output["result"], new)
+    [(path, text)] = new.items()
+    assert path.startswith(f"projects/{HUB}/notes/"), path
+    assert "loki" in Path(path).stem.lower(), path
+    assert "3200" in text and "type: note" in text, text
+    assert {path: vault_files(vault)[path] for path in before} == before  # nothing else changed
 
 
-def test_a_general_note_from_a_project_goes_into_general(world):
+def test_a_general_note_extends_the_matching_topic_entry(world):
     vault, state, hub, _ = world
+    python = vault / "notes" / "Python.md"
+    write(
+        python,
+        "---\ntype: topic\nupdated: 2026-10-01\n---\n## Preferences\n"
+        "- **Python packages are installed with pip.** Into a virtual environment.\n",
+    )
+    before = vault_files(vault)
 
     output = note(vault, state, hub, "remember in general: Python packages with uv instead of pip")
 
-    general = vault / "general" / "notes.md"
-    assert general.is_file(), output["result"]
-    assert "Python packages with uv instead of pip" in general.read_text()
-    assert "remember in general" not in general.read_text().lower()
-    assert (vault / "projects" / HUB / "notes.md").read_text() == PROJECT_NOTES
+    after = vault_files(vault)
+    assert set(after) == set(before), (output["result"], set(after) - set(before))
+    packaging = [line for line in python.read_text().splitlines() if line.startswith("- **")]
+    assert len(packaging) == 1 and "uv" in packaging[0], python.read_text()
+    assert after[f"projects/{HUB}/notes/Deploy rules.md"] == DEPLOY_RULES
 
 
-def test_a_note_about_the_home_nas_from_a_work_project_goes_into_private(world):
+def test_a_note_after_talking_about_a_private_note_links_nothing_private(world):
     vault, state, hub, _ = world
+    write(vault / "private" / "Employment contract.md", "Notice period three months.\n")
+    before = vault_files(vault)
 
-    output = note(vault, state, hub, "my home NAS backs up every night at 02:00")
+    output = note(
+        vault,
+        state,
+        hub,
+        "the handover plan",
+        after=(
+            "From my private note [[private/Employment contract]]: the notice period is three "
+            "months. So we plan the handover of the hub two months ahead, with Anna as successor."
+        ),
+    )
 
-    private = vault / "private" / "notes.md"
-    assert private.is_file(), output["result"]
-    assert "my home NAS backs up every night at 02:00" in private.read_text()
-    assert set(notes_files(vault)) == {f"projects/{HUB}/notes.md", "private/notes.md"}
-    assert (vault / "projects" / HUB / "notes.md").read_text() == PROJECT_NOTES
+    new = {path: text for path, text in vault_files(vault).items() if path not in before}
+    assert len(new) == 1, (output["result"], new)  # the note is written
+    [text] = new.values()
+    assert "Anna" in text, text
+    assert "private/" not in text and "[[Employment contract" not in text, text
+
+
+def test_a_private_note_is_not_written_and_the_reply_points_to_private(world):
+    vault, state, hub, _ = world
+    before = vault_files(vault)
+
+    output = note(vault, state, hub, "my blood pressure medication changes to 5 mg on Monday")
+
+    assert vault_files(vault) == before
+    assert "private" in output["result"].lower(), output["result"]
 
 
 @pytest.mark.parametrize(
@@ -124,17 +165,21 @@ def test_a_note_about_the_home_nas_from_a_work_project_goes_into_private(world):
     [("project", "add milk to the shopping list"), ("home", "buy milk")],
     ids=["in-a-project", "outside-a-repository"],
 )
-def test_a_shopping_item_goes_onto_the_list_and_no_notes_change(world, where, text):
+def test_a_shopping_item_goes_onto_the_list_and_nothing_else_changes(world, where, text):
     vault, state, hub, home = world
-    shopping = vault / "notes" / "shopping-list.md"
-    write(shopping, "---\ntype: list\ndomain: private\nsummary: Shopping list\n---\n- [ ] Bread\n")
+    shopping = vault / "notes" / "Shopping list.md"
+    write(shopping, "---\ntype: list\nsummary: Shopping list\n---\n- [ ] Bread\n")
+    before = vault_files(vault)
 
     output = note(vault, state, hub if where == "project" else home, text)
 
     listed = shopping.read_text()
     assert "milk" in listed.lower() and "Bread" in listed, output["result"]
-    assert notes_files(vault) == {f"projects/{HUB}/notes.md": PROJECT_NOTES}
-    assert (vault / "projects" / HUB / "knowledge.md").read_text() == KNOWLEDGE
+    after = vault_files(vault)
+    assert set(after) == set(before)
+    assert {k: v for k, v in after.items() if k != "notes/Shopping list.md"} == {
+        k: v for k, v in before.items() if k != "notes/Shopping list.md"
+    }
 
 
 def test_search_finds_the_entry_and_says_where(world):

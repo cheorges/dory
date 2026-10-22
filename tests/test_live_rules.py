@@ -19,6 +19,7 @@ from dory.config import Config
 from dory.entries import Entry, parse
 from dory.ingest import make_process
 from dory.project import project_for_root
+from dory.scopes import file_type
 from dory.state import StateDir
 from dory.worker import run
 
@@ -63,8 +64,11 @@ class World:
             f"---\n{body}",
         )
 
-    def user_notes(self, body: str) -> Path:
-        return self.note(f"projects/{HUB}/notes.md", f"---\ntype: notes\n---\n{body}")
+    def user_note(self, title: str, body: str) -> Path:
+        return self.note(
+            f"projects/{HUB}/notes/{title}.md",
+            f"---\ntype: note\ncreated: 2026-10-18\n---\n{body}",
+        )
 
     def record(self, name: str, text: str) -> None:
         records = self.hub / "docs" / "records"
@@ -113,15 +117,23 @@ class World:
     def entries(self, scope: str = f"projects/{HUB}") -> list[Entry]:
         return parse(self.knowledge_text(scope))
 
+    def topic_files(self) -> list[Path]:
+        notes = self.vault / "notes"
+        return sorted(path for path in notes.glob("*.md") if file_type(path) == "topic")
+
+    def topic_entries(self) -> list[Entry]:
+        return [entry for path in self.topic_files() for entry in parse(path.read_text())]
+
     def all_entries(self) -> list[Entry]:
-        return [
-            entry
-            for scope in (f"projects/{HUB}", "general", "private")
-            for entry in self.entries(scope)
-        ]
+        return [*self.entries(), *self.topic_entries()]
 
     def entries_about(self, term: str, scope: str | None = None) -> list[Entry]:
-        found = self.entries(scope) if scope else self.all_entries()
+        """Entries that mention `term`: in `scope`'s knowledge file, in the topic files
+        (`notes`), or everywhere."""
+        if scope == "notes":
+            found = self.topic_entries()
+        else:
+            found = self.entries(scope) if scope else self.all_entries()
         return [entry for entry in found if term.lower() in entry.text.lower()]
 
     def session_note(self) -> str:
@@ -496,7 +508,7 @@ def test_platform_gotcha_from_a_record_becomes_a_pointer_entry(world):
 
 
 def test_a_users_note_is_never_changed_or_repeated(world):
-    notes = world.user_notes("- 2026-10-18: Loki port 3100 clashes with Grafana on the VMs\n")
+    notes = world.user_note("Loki and Grafana", "Loki port 3100 clashes with Grafana on the VMs.\n")
     original = notes.read_bytes()
     world.session(
         world.hub,
@@ -518,8 +530,8 @@ def test_a_users_note_is_never_changed_or_repeated(world):
     assert not repeats, world.knowledge_text()
 
 
-def test_a_users_note_the_session_contradicts_is_named_as_open(world):
-    notes = world.user_notes("- 2026-10-18: Loki runs on port 3100\n")
+def test_a_users_note_the_session_contradicts_is_linked_as_open(world):
+    notes = world.user_note("Loki port", "Loki runs on port 3100.\n")
     original = notes.read_bytes()
     world.session(
         world.hub,
@@ -532,7 +544,9 @@ def test_a_users_note_the_session_contradicts_is_named_as_open(world):
 
     assert notes.read_bytes() == original
     assert [e for e in world.entries_about("loki") if "3200" in e.text], world.knowledge_text()
-    assert "3100" in section(world.session_note(), "Open"), world.session_note()
+    assert f"projects/{HUB}/notes/Loki port" in section(world.session_note(), "Open"), (
+        world.session_note()
+    )
 
 
 # Where knowledge goes, and what it never touches.
@@ -561,11 +575,75 @@ def test_knowledge_lands_in_its_scope(world):
     )
 
     assert world.entries_about("allkeys-lru", f"projects/{HUB}"), world.dump()
-    assert world.entries_about("notion", "general"), world.dump()
-    assert world.entries_about("synology", "private") or world.entries_about("nas", "private")
+    assert world.entries_about("notion", "notes"), world.dump()
+    assert any("notion" in path.stem.lower() for path in world.topic_files()), world.dump()
     assert not world.entries_about("notion", f"projects/{HUB}")
-    assert not world.entries_about("sudo", f"projects/{HUB}")
-    assert not world.entries_about("sudo", "general")
+    for term in ("sudo", "synology", "docker-compose"):
+        assert not world.entries_about(term), world.dump()
+    assert not world.files("private"), world.dump()
+
+
+def test_an_insight_on_an_existing_topic_extends_its_file(world):
+    topic = world.note(
+        "notes/Notion.md",
+        "---\ntype: topic\nupdated: 2026-10-01\n---\n## Pitfalls\n"
+        "- **Overwriting a Notion page through the API deletes its embedded databases.** "
+        "Append blocks instead of replacing the page.\n",
+    )
+    world.session(
+        world.hub,
+        (
+            "The import into Notion stopped after 100 blocks. The Notion API returns at most 100 "
+            "blocks per request; you have to page with start_cursor to get the rest.",
+            "Confirmed: without paging over start_cursor every Notion read stops at 100 blocks.",
+        ),
+        ("Good to know for every Notion integration, not only this one.", "Noted."),
+    )
+
+    assert world.topic_files() == [topic], world.dump()
+    assert [e for e in parse(topic.read_text()) if "100" in e.text], topic.read_text()
+    assert "Overwriting a Notion page" in topic.read_text()
+
+
+def test_a_private_note_never_reaches_a_topic_file(world):
+    world.note(
+        "private/Notion.md",
+        "Our family budget lives in Notion, on the shared page Haushalt Sonnenberg.\n",
+    )
+    world.session(
+        world.hub,
+        (
+            "Nothing to do with the hub: Notion deletes the embedded databases of a page when the "
+            "page is overwritten through the API. That cost me a database in another workspace.",
+            "Noted: overwriting a Notion page through the API deletes its embedded databases.",
+        ),
+    )
+
+    assert world.entries_about("notion", "notes"), world.dump()
+    written = [path for folder in ("notes", "projects", "sessions") for path in world.files(folder)]
+    assert not [path for path in written if "Sonnenberg" in path.read_text()], world.dump()
+
+
+def test_a_private_projects_session_writes_no_topic_file(world):
+    world.knowledge_file("")
+    knowledge = world.vault / "projects" / HUB / "knowledge.md"
+    knowledge.write_text(knowledge.read_text().replace("domain: work", "domain: private"))
+    world.session(
+        world.hub,
+        (
+            "Two things. For this project: the hub's Redis needs maxmemory-policy allkeys-lru, "
+            "otherwise the sessions fail once the memory is full.",
+            "Confirmed for the hub: Redis needs maxmemory-policy allkeys-lru.",
+        ),
+        (
+            "And nothing to do with the hub: Notion deletes the embedded databases of a page "
+            "when the page is overwritten through the API.",
+            "Noted: overwriting a Notion page through the API deletes its embedded databases.",
+        ),
+    )
+
+    assert world.entries_about("allkeys-lru", f"projects/{HUB}"), world.dump()
+    assert world.topic_files() == [], world.dump()
 
 
 def test_files_of_an_earlier_version_stay_untouched(world):

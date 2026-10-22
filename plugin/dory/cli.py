@@ -23,8 +23,9 @@ def main(argv: list[str] | None = None) -> int:
     work = commands.add_parser("worker", help="drain the queue")
     work.add_argument("--dry-run", action="store_true", help="only write the input bundles")
     commands.add_parser("prepare-note", help="/dory:note: snapshot and context for writing")
-    add = commands.add_parser("add-note", help="/dory:note: append the user's note to a notes.md")
-    add.add_argument("--scope", required=True, help="project, general or private")
+    add = commands.add_parser("add-note", help="/dory:note: create a note file with its title")
+    add.add_argument("--scope", required=True, help="project or general")
+    add.add_argument("--title", required=True, help="the note's title, its file name")
     add.add_argument("text", nargs="*", help="the note; read from stdin when left out")
     find = commands.add_parser("search", help="/dory:search: find notes in the vault")
     find.add_argument("query", nargs="+")
@@ -42,7 +43,8 @@ def main(argv: list[str] | None = None) -> int:
         print(note.prepare_note(load_config(), Path.cwd()))
         return 0
     if args.command == "add-note":
-        return _add_note(args.scope, " ".join(args.text) if args.text else sys.stdin.read())
+        text = " ".join(args.text) if args.text else sys.stdin.read()
+        return _add_note(args.scope, args.title, text)
     if args.command == "search":
         print(search.search(load_config(), Path.cwd(), " ".join(args.query)))
         return 0
@@ -54,10 +56,10 @@ def main(argv: list[str] | None = None) -> int:
     return _worker(dry_run=args.dry_run)
 
 
-def _add_note(scope: str, text: str) -> int:
+def _add_note(scope: str, title: str, text: str) -> int:
     config = load_config()
     try:
-        written = note.add_note(config, Path.cwd(), scope, text)
+        written = note.add_note(config, Path.cwd(), scope, title, text)
     except note.NoteError as error:
         print(f"dory add-note: {error}", file=sys.stderr)
         return 1
