@@ -125,4 +125,7 @@ def test_the_manifest_declares_exactly_the_options_dory_reads():
     assert options["model"]["options"] == ["sonnet", "haiku", "opus"]
     assert options["context"]["options"] == ["lean", "balanced", "rich"]
     assert options["model"]["default"] == "sonnet" and options["context"]["default"] == "lean"
-    assert all("default" not in options[name] for name in ("vault", "language", "context_window"))
+    assert (
+        options["language"]["default"] == "English" and "German" in options["language"]["options"]
+    )
+    assert all("default" not in options[name] for name in ("vault", "context_window"))

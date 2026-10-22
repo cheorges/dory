@@ -61,7 +61,7 @@ In Claude Code: `/config`, then the rows of dory, or `/plugin configure dory@bra
 | Option | Default |
 |---|---|
 | Vault folder | `~/Obsidian/dory-brain` |
-| Note language | `English` |
+| Note language | `English`, or German, French, Italian, ... |
 | Worker model | `sonnet`, or `haiku` / `opus` |
 | Context at session start | `lean` (5 % of the window), `balanced` (10 %), `rich` (15 %) |
 | Context window (tokens) | `200000`; set `1000000` for 1M windows |

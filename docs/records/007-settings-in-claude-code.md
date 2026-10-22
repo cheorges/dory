@@ -45,7 +45,11 @@ Only hooks get the variables. `/dory:note` and `/dory:save` run `dory` through B
 
 ### Decision 4: Order and defaults
 
-`/config` wins over config.toml, config.toml over dory's defaults; `DORY_VAULT` and `DORY_STATE_DIR` override all. A choice list must have a default (the validator refuses one without), so `model` and `context` show `sonnet` and `lean`; the probe shows such a default is display only, so a value in config.toml still applies until the user sets the option. `vault`, `language` and `context_window` declare no default: `/config` would show `~/Obsidian/dory-brain` to a user whose config.toml names another vault.
+`/config` wins over config.toml, config.toml over dory's defaults; `DORY_VAULT` and `DORY_STATE_DIR` override all. A choice list must have a default (the validator refuses one without), so `model`, `context` and, since 0.8.1, `language` show `sonnet`, `lean` and `English`; the probe shows such a default is display only, so a value in config.toml still applies until the user sets the option. `vault` and `context_window` declare no default: `/config` would show `~/Obsidian/dory-brain` to a user whose config.toml names another vault.
+
+### Decision 5: The note language as a list (0.8.1)
+
+The user asked for a choice list instead of free text, with English as default. The list holds 16 common languages; a language not on it goes into config.toml, which applies while the option is not set. The cost: such a user cannot pick it in `/config`.
 
 ## Solution
 

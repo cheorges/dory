@@ -2,6 +2,10 @@
 
 All notable changes to dory are listed here. Versions follow [Semantic Versioning](https://semver.org/); the version lives in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py`, and a test keeps them in sync.
 
+## 0.8.1 (2026-10-22)
+
+- **The note language is a choice list** in `/config`, English by default, with 16 common languages. Another language still goes into `config.toml` (`language = "Catalan"`) and applies while the option is not set in `/config`.
+
 ## 0.8.0 (2026-10-22)
 
 dory's main settings are in Claude Code's `/config` ([Record 007](docs/records/007-settings-in-claude-code.md)).

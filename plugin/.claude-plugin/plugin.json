@@ -1,6 +1,6 @@
 {
   "name": "dory",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Second brain for Claude Code: sessions become Obsidian notes, recalled at session start",
   "author": {
     "name": "cheorges",
@@ -17,7 +17,26 @@
     "language": {
       "type": "string",
       "title": "Note language",
-      "description": "The language dory writes the notes in, e.g. German. Headings stay English. Unset: config.toml, else English."
+      "description": "The language dory writes the notes in. Headings stay English. Another language: set language in config.toml. Until you set it here, config.toml decides, else English.",
+      "options": [
+        "English",
+        "German",
+        "French",
+        "Italian",
+        "Spanish",
+        "Portuguese",
+        "Dutch",
+        "Swedish",
+        "Danish",
+        "Norwegian",
+        "Finnish",
+        "Polish",
+        "Czech",
+        "Turkish",
+        "Japanese",
+        "Chinese"
+      ],
+      "default": "English"
     },
     "model": {
       "type": "string",
