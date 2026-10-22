@@ -124,6 +124,8 @@ session start in dory  ──►  projects/dory/notes/*.md + notes/*.md
 - **`/dory:note`.** The guard of Decision 8 (`dory guard`, reading the hook's JSON on stdin, exit 2 with a message that names `/dory:library`). The scope `general` becomes `notes` (`--scope notes`), and "remember in general" leaves the skill and the README.
 - **`/dory:search`.** Covers `library/` as it covered `private/`.
 
+**Change in 0.10.0:** the proposal no longer prints the content. Claude drafts it without showing it, says in two or three lines what it sums up and mentions, and asks folder, title, links and the go-ahead with one AskUserQuestion call, the proposal preselected so that Enter accepts it. The written-out content made long proposals hard to read in the terminal; what the user decides is where it goes, what it is called and where it loads. Where AskUserQuestion is not available (`claude -p`), the skill asks in one message.
+
 ### Risks
 
 - **The dialog in a live check.** `claude -p` cannot answer questions. The live checks give the answers in the request ("file under Python, link it from the Python topic") and check what was written.

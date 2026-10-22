@@ -289,4 +289,5 @@ def test_library_asks_before_it_writes(world):
     output = run_skill(vault, state, hub, '/dory:library "Python packages with uv instead of pip"')
 
     assert vault_files(vault) == before
-    assert "?" in output["result"], output["result"]
+    # The proposal names the topic file it would link from, and waits for the answer.
+    assert "notes/Python" in output["result"], output["result"]

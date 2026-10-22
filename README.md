@@ -36,7 +36,7 @@ Work as usual: ending a session (`/exit`, `/clear`, closing the tab) is enough. 
 | Command | When |
 |---|---|
 | `/dory:note "Loki runs on 3200 because Grafana takes 3100"` | Something the next session must know. Claude writes it as a note in the project, or into the matching topic, without asking. |
-| `/dory:library "uv instead of pip, because ..."` | Knowledge you want to keep for good. Claude proposes folder, title, content and which notes link it, and writes after your yes. |
+| `/dory:library "uv instead of pip, because ..."` | Knowledge you want to keep for good. Claude says in a few lines what the entry will hold, then asks for folder, title and links with its proposal preselected; Enter accepts, and only then is it written. |
 | `/dory:search loki deploy` | Find earlier knowledge, notes and sessions in the whole vault. |
 | `/dory:save` | Process the running session now, without ending it. |
 

@@ -1,6 +1,6 @@
 {
   "name": "dory",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Second brain for Claude Code: sessions become Obsidian notes, recalled at session start",
   "author": {
     "name": "cheorges",
