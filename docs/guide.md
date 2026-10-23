@@ -43,7 +43,7 @@ claude plugin uninstall dory@brain
 |---|---|
 | `/dory:save` | Queues the running session right away without ending it. When it ends later, only the rest is processed, as part 2. |
 | `/dory:note "how we solved the Loki port"` | Writes a note file into the project's `notes/`: what the next session must know. Claude picks a title and writes the content from your request and the session, without asking. Something that has nothing to do with the project goes into the matching topic in `notes/`, "buy milk" onto the shopping list. It never writes into `library/`. |
-| `/dory:library "uv instead of pip, because ..."` | Files knowledge you want to keep in `library/`, in a dialog: Claude proposes the folder, the title, the content with links to the notes it mentions, and the project notes or topic files to link it from, so that it loads where it belongs. Nothing is written before your yes. |
+| `/dory:library "uv instead of pip, because ..."` | Files knowledge you want to keep in `library/`, in a dialog: Claude says in two or three lines what the entry will sum up and mention, without printing it, then asks four questions with its proposal preselected: the folder, the title, the project notes or topic files to link it from (so that it loads where it belongs), and whether to write it, shorter or in more detail. Enter accepts the proposal; pick another option or type your own. Nothing is written before you answer. |
 | `/dory:search loki deploy` | Searches the whole vault, `library/` included, and shows each matching entry, note, list or session note with its file. Claude also runs it on its own when you ask about earlier knowledge. |
 
 ### In the terminal

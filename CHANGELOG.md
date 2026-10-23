@@ -2,6 +2,10 @@
 
 All notable changes to dory are listed here. Versions follow [Semantic Versioning](https://semver.org/); the version lives in `pyproject.toml`, `plugin/.claude-plugin/plugin.json` and `plugin/dory/__init__.py`, and a test keeps them in sync.
 
+## 0.10.0 (2026-10-22)
+
+- **`/dory:library` asks instead of printing.** The entry no longer appears in the chat. Claude says in two or three lines what it will sum up and mention, then asks for folder, title, links and the go-ahead in one question form with its proposal preselected; Enter writes it, and every answer can be changed or typed freely.
+
 ## 0.9.0 (2026-10-22)
 
 - **The note language is a choice list** in `/config`, English by default, with 16 common languages.
