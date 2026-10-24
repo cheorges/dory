@@ -1,4 +1,6 @@
+import os
 import threading
+import time
 from pathlib import Path
 
 from dory import queue
@@ -147,3 +149,73 @@ def test_unreadable_entry_is_parked_and_the_queue_moves_on(tmp_path):
     assert run(state, lambda p, e: Outcome.DONE) == "done"
     assert (state.failed / broken.name).exists()
     assert len(list(state.done.glob("*.json"))) == 1
+
+
+def copy_of(path: Path) -> Path:
+    return Path(queue.load(path).transcript_copy)
+
+
+def test_processed_entry_drops_its_transcript_copy(tmp_path):
+    state = StateDir(tmp_path).ensure()
+    path = add(state, "s1")
+    copy = copy_of(path)
+
+    assert run(state, lambda p, e: Outcome.DONE) == "done"
+    assert not copy.exists()
+
+
+def test_skipped_entry_drops_its_transcript_copy(tmp_path):
+    state = StateDir(tmp_path).ensure()
+    copy = copy_of(add(state, "s1"))
+
+    run(state, lambda p, e: Outcome.SKIPPED)
+    assert not copy.exists()
+
+
+def test_entry_waiting_for_a_retry_keeps_its_transcript_copy(tmp_path):
+    state = StateDir(tmp_path).ensure()
+    path = add(state, "s1")
+    copy = copy_of(path)
+
+    run(state, lambda p, e: Outcome.FAILED)  # one attempt, still queued
+    assert copy.exists()
+    for _ in range(MAX_ATTEMPTS):
+        run(state, lambda p, e: Outcome.FAILED)
+    assert (state.failed / path.name).exists()
+    assert copy.exists()  # `dory retry` puts it back into the queue
+
+
+def test_sweep_removes_old_copies_without_an_entry(tmp_path):
+    state = StateDir(tmp_path).ensure()
+    kept = copy_of(add(state, "queued"))
+    parked = state.transcripts / "20261001T000000.000000Z-parked.jsonl"
+    parked.write_text("{}")
+    (state.failed / "20261001T000000.000000Z-parked.json").write_text("{}")
+    orphan = state.transcripts / "20261001T000000.000000Z-done.jsonl"
+    orphan.write_text("{}")
+    fresh = state.transcripts / "20261023T000000.000000Z-arriving.jsonl"
+    fresh.write_text("{}")
+    old = time.time() - 3600
+    for copy in (kept, parked, orphan):
+        os.utime(copy, (old, old))
+
+    queue.sweep(state)
+
+    assert kept.exists() and parked.exists()
+    assert fresh.exists()  # a hook copies the transcript just before it writes the entry
+    assert not orphan.exists()
+
+
+def test_a_fresh_copy_of_an_old_transcript_survives_the_sweep(tmp_path):
+    state = StateDir(tmp_path).ensure()
+    old_transcript = tmp_path / "old.jsonl"
+    old_transcript.write_text((FIXTURES / "resume-compact.jsonl").read_text())
+    old = time.time() - 3600
+    os.utime(old_transcript, (old, old))  # a session idle for an hour, then ended
+    path = queue.enqueue(
+        state, session_id="idle", transcript=old_transcript, cwd="/tmp", reason="clear"
+    )
+    path.unlink()  # the sweep runs between the clone and the entry being written
+
+    queue.sweep(state)
+    assert (state.transcripts / f"{path.stem}.jsonl").exists()

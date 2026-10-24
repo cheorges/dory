@@ -80,7 +80,7 @@ def capture(vault: Path, target: Path, project: Project | None, *, topics_allowe
     lists.
     """
     with notes_lock(target.parent):  # add-note must not write between the hashes and the marker
-        if _open(target) and (target / _LAYOUT).exists():
+        if unchecked(target):
             return True
         shutil.rmtree(target, ignore_errors=True)
         target.mkdir(parents=True)
@@ -220,6 +220,11 @@ def sweep(state: StateDir) -> None:
 def _linked(target: Path) -> list[str]:
     path = target / _LINKED
     return json.loads(path.read_text()) if path.is_file() else []
+
+
+def unchecked(target: Path) -> bool:
+    """The baseline of an attempt that ended before its checks ran, kept for the next one."""
+    return _open(target) and (target / _LAYOUT).exists()
 
 
 def _open(target: Path) -> bool:
@@ -379,6 +384,23 @@ def _unexpected(vault: Path, target: Path, knowledge: Path | None) -> list[dict]
     return changes
 
 
+def replaced(vault: Path, target: Path) -> list[tuple[str, str, str]]:
+    """(file, change, previous text) of every entry the run changed or removed."""
+    layout = json.loads((target / _LAYOUT).read_text())
+    knowledge = Path(layout["knowledge"]) if layout["knowledge"] else None
+    captured = [Path(name) for name in layout["notes"]]
+    uncopied = {relative for relative in captured if not (target / "files" / relative).exists()}
+    found = []
+    for relative in [*([knowledge] if knowledge else []), *_topics(vault, target, uncopied)]:
+        with contextlib.suppress(OSError, UnicodeDecodeError):  # `check` reports the file
+            found += [
+                (str(relative), change.change, change.before)
+                for change in _diff(vault, target, relative)
+                if change.before
+            ]
+    return found
+
+
 def _topics_written(
     vault: Path, target: Path, new_notes: list[Path], uncopied: set[Path]
 ) -> list[dict]:
@@ -396,11 +418,15 @@ def _topics_written(
     return changes
 
 
-def _entry_changes(vault: Path, target: Path, relative: Path) -> list[dict]:
+def _diff(vault: Path, target: Path, relative: Path) -> list[entries.Change]:
     kept = target / "files" / relative
     path = vault / relative
     before = entries.parse(kept.read_text() if kept.exists() else "")
     after = entries.parse(path.read_text() if path.exists() else "")
+    return entries.diff(before, after)
+
+
+def _entry_changes(vault: Path, target: Path, relative: Path) -> list[dict]:
     return [
         {
             "change": change.change,
@@ -408,7 +434,7 @@ def _entry_changes(vault: Path, target: Path, relative: Path) -> list[dict]:
             "lead": change.lead,
             **({"was": change.was} if change.was else {}),
         }
-        for change in entries.diff(before, after)
+        for change in _diff(vault, target, relative)
     ]
 
 

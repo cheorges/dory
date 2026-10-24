@@ -1,6 +1,7 @@
 """/dory:library: `library-context`, `library-write`, `link`, the guard of /dory:note, and how
 linked entries reach the session start, the worker and the post-run checks."""
 
+import hashlib
 import json
 import subprocess
 from datetime import date
@@ -13,7 +14,15 @@ from dory.cli import main
 from dory.config import Config
 from dory.frontmatter import read_frontmatter
 from dory.ingest import RunResult, make_process
-from dory.library import LibraryError, guard, library_context, library_write, link
+from dory.library import (
+    CONTEXT_CHARS,
+    MAX_OTHER_NOTES,
+    LibraryError,
+    guard,
+    library_context,
+    library_write,
+    link,
+)
 from dory.note import NoteError, add_note
 from dory.project import Project, project_for_root
 from dory.recall import recall
@@ -51,6 +60,10 @@ def world(tmp_path):
     write(vault, "notes/Shopping list.md", "---\ntype: list\n---\n- [ ] Milk\n")
     write(vault, UV, "---\ntype: library\n---\nPython packages with uv, never pip.\n")
     return config, repos
+
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def hook(cwd: Path) -> dict:
@@ -148,6 +161,126 @@ def test_the_context_lists_the_library_and_the_files_that_can_link_with_what_the
     assert "Snapshot: " in text
 
 
+def test_the_context_lists_every_projects_notes_with_what_they_are_about_own_project_first(world):
+    config, repos = world
+    write(config.vault, "projects/dory/knowledge.md", "---\ntype: knowledge\ndomain: work\n---\n")
+    write(
+        config.vault,
+        "projects/dory/notes/Release.md",
+        "---\ntype: note\naliases: [Releasing]\ntags: [release, git]\n---\n# How dory is released\n"
+        "Tag on main.\n",
+    )
+    write(
+        config.vault,
+        "projects/dory/notes/Vault.md",
+        "---\ntype: note\ndescription: Where the vault lives\n---\nText only.\n",
+    )
+    write(config.vault, "projects/dory/notes/Tags.md", "---\ntype: note\n---\n#release\nPlain.\n")
+
+    text = library_context(config, repos["ai-assistant-hub"])
+
+    assert text.index(f"{HUB}/notes/Deploy.md") < text.index("projects/dory/notes/Release.md")
+    assert (
+        '- projects/dory/notes/Release.md: "How dory is released" (aliases: Releasing; '
+        "tags: release, git)"
+    ) in text
+    assert '- projects/dory/notes/Vault.md: "Where the vault lives"' in text
+    assert "- projects/dory/notes/Tags.md\n" in text
+
+
+def test_the_context_names_each_entrys_aliases_and_hash(world):
+    config, repos = world
+    write(config.vault, UV, '---\ntype: library\naliases:\n  - "uv"\n  - "pip"\n---\nText.\n')
+
+    text = library_context(config, repos["ai-assistant-hub"])
+
+    assert (
+        f"- Python/Package management (aliases: uv, pip; sha256 {sha(config.vault / UV)})" in text
+    )
+
+
+def test_a_private_projects_notes_appear_only_in_its_own_sessions(world):
+    config, repos = world
+    write(
+        config.vault,
+        "projects/haushalt/knowledge.md",
+        "---\ntype: knowledge\ndomain: private\n---\n",
+    )
+    write(config.vault, "projects/haushalt/notes/Insurance.md", "---\ntype: note\n---\nPolicy.\n")
+
+    from_work = library_context(config, repos["ai-assistant-hub"])
+    from_home = library_context(config, repos["haushalt"])
+    outside = library_context(config, config.vault.parent)
+
+    assert "Insurance" not in from_work and "Insurance" not in outside
+    assert "projects/haushalt/notes/Insurance.md" in from_home
+    assert f"{HUB}/notes/Deploy.md" not in from_home
+    assert f"{HUB}/notes/Deploy.md" in outside
+
+
+def test_the_context_caps_the_notes_of_other_projects_and_counts_the_rest(world):
+    config, repos = world
+    for index in range(MAX_OTHER_NOTES + 3):
+        write(config.vault, f"projects/big/notes/Note {index:02d}.md", "---\ntype: note\n---\nx\n")
+    for index in range(MAX_OTHER_NOTES + 3):
+        write(config.vault, f"{HUB}/notes/Own {index:02d}.md", "---\ntype: note\n---\nx\n")
+
+    text = library_context(config, repos["ai-assistant-hub"])
+
+    assert text.count("- projects/big/notes/") == MAX_OTHER_NOTES
+    assert "- 3 more notes of big" in text
+    assert text.count(f"- {HUB}/notes/Own ") == MAX_OTHER_NOTES + 3
+
+
+def test_a_comment_in_a_code_block_is_no_heading(world):
+    config, repos = world
+    write(
+        config.vault,
+        f"{HUB}/notes/Setup.md",
+        "---\ntype: note\n---\n```bash\n# install deps\nuv sync\n```\n## Local setup\n",
+    )
+
+    text = library_context(config, repos["ai-assistant-hub"])
+
+    assert f'- {HUB}/notes/Setup.md: "Local setup"' in text
+
+
+def test_an_unreadable_note_or_entry_does_not_fail_the_context(world, monkeypatch):
+    config, repos = world
+    monkeypatch.setattr("dory.library.snapshot", lambda config, state: "none")  # copies every file
+    broken = write(config.vault, f"{HUB}/notes/Broken.md", "no frontmatter\n")
+    for path in (broken, config.vault / UV):
+        path.chmod(0)
+
+    try:
+        text = library_context(config, repos["ai-assistant-hub"])
+    finally:
+        for path in (broken, config.vault / UV):
+            path.chmod(0o644)
+
+    assert "- Python/Package management (unreadable)" in text
+    assert f"- {HUB}/notes/Broken.md" in text and f"{HUB}/notes/Deploy.md" in text
+
+
+def test_the_context_stops_listing_other_projects_at_its_budget(world):
+    config, repos = world
+    long = "A long description that fills the line with words " * 2
+    for project in range(30):
+        for index in range(20):
+            write(
+                config.vault,
+                f"projects/p{project:02d}/notes/Note {index:02d}.md",
+                f"---\ntype: note\ndescription: {long}\ntags: [a, b, c, d, e, f, g]\n---\n",
+            )
+
+    text = library_context(config, repos["ai-assistant-hub"])
+
+    assert len(text) <= CONTEXT_CHARS + 2_000, len(text)
+    assert f"{HUB}/notes/Deploy.md" in text and "notes/Python.md" in text
+    assert "more projects" in text
+    assert "tags: a, b, c, d, e)" in text
+
+
 def test_a_new_entry_gets_its_frontmatter_and_an_existing_folder_keeps_its_spelling(world):
     config, _ = world
 
@@ -161,9 +294,12 @@ def test_a_new_entry_gets_its_frontmatter_and_an_existing_folder_keeps_its_spell
 
 def test_an_existing_entry_is_replaced_and_keeps_its_created_date(world):
     config, _ = world
+    (config.vault / UV).unlink()
     library_write(config, "Python", "Package management", "First.\n", date(2026, 10, 1))
 
-    written, new = library_write(config, "Python", "package MANAGEMENT", "Second.\n", TODAY)
+    written, new = library_write(
+        config, "Python", "package MANAGEMENT", "Second.\n", TODAY, expect=sha(config.vault / UV)
+    )
 
     assert (written, new) == (Path(UV), False)
     meta = read_frontmatter(config.vault / UV)
@@ -455,7 +591,9 @@ def test_replacing_an_entry_keeps_the_properties_the_user_added(world):
         "---\ntype: library\ncreated: 2026-10-01\ntags:\n  - python\naliases: [uv]\n---\nOld.\n",
     )
 
-    library_write(config, "Python", "Package management", "New.\n", TODAY)
+    library_write(
+        config, "Python", "Package management", "New.\n", TODAY, expect=sha(config.vault / UV)
+    )
 
     meta = read_frontmatter(config.vault / UV)
     assert meta["tags"] == ["python"] and meta["aliases"] == ["uv"]
@@ -480,3 +618,152 @@ def test_a_title_with_a_quote_dollar_or_backtick_is_refused(world, title):
         add_note(config, repos["ai-assistant-hub"], "project", title, "x\n")
 
     assert sorted(config.vault.rglob("*")) == before
+
+
+# Replacing only on purpose, aliases and source
+
+
+def test_an_existing_entry_is_never_replaced_without_being_asked_to(world):
+    config, _ = world
+    before = (config.vault / UV).read_text()
+
+    with pytest.raises(LibraryError, match=f"exists.*{sha(config.vault / UV)}"):
+        library_write(config, "Python", "package management", "Other.\n", TODAY)
+
+    assert (config.vault / UV).read_text() == before
+
+
+def test_a_stale_hash_replaces_nothing_and_names_the_current_one(world):
+    config, _ = world
+    read = sha(config.vault / UV)
+    write(config.vault, UV, "---\ntype: library\n---\nChanged in Obsidian meanwhile.\n")
+
+    with pytest.raises(LibraryError, match=f"changed.*{sha(config.vault / UV)}"):
+        library_write(config, "Python", "Package management", "Mine.\n", TODAY, expect=read)
+
+    assert "meanwhile" in (config.vault / UV).read_text()
+
+
+def test_a_hash_for_a_new_entry_is_refused(world):
+    config, _ = world
+
+    with pytest.raises(LibraryError, match="no entry"):
+        library_write(config, "Python", "Packaging", "x\n", TODAY, expect="0" * 64)
+
+    assert not (config.vault / "library/Python/Packaging.md").exists()
+
+
+def test_aliases_and_source_land_in_the_frontmatter_quoted(world):
+    config, _ = world
+
+    written, _ = library_write(
+        config,
+        "Python",
+        "Virtual environments",
+        "Use uv venv.\n",
+        TODAY,
+        aliases=["venv", "Virtuelle Umgebung"],
+        source="[[projects/ai-assistant-hub/notes/Deploy|Deploy]]",
+    )
+
+    text = (config.vault / written).read_text()
+    assert 'aliases:\n  - "venv"\n  - "Virtuelle Umgebung"\n' in text
+    assert 'source: "[[projects/ai-assistant-hub/notes/Deploy|Deploy]]"\n' in text
+    meta = read_frontmatter(config.vault / written)
+    assert meta["aliases"] == ["venv", "Virtuelle Umgebung"]
+    assert meta["source"] == "[[projects/ai-assistant-hub/notes/Deploy|Deploy]]"
+
+
+def test_a_replace_keeps_aliases_and_source_it_is_not_given_and_replaces_those_it_is(world):
+    config, _ = world
+    write(
+        config.vault,
+        UV,
+        '---\ntype: library\ncreated: 2026-10-01\naliases:\n  - "uv"\n'
+        'source: "https://docs.astral.sh/uv/"\ntags: [python]\n---\nOld.\n',
+    )
+
+    library_write(
+        config, "Python", "Package management", "New.\n", TODAY, expect=sha(config.vault / UV)
+    )
+    kept = read_frontmatter(config.vault / UV)
+    library_write(
+        config,
+        "Python",
+        "Package management",
+        "Newer.\n",
+        TODAY,
+        expect=sha(config.vault / UV),
+        aliases=["Paketverwaltung"],
+    )
+    replaced = read_frontmatter(config.vault / UV)
+
+    assert (kept["aliases"], kept["source"], kept["tags"]) == (
+        ["uv"],
+        "https://docs.astral.sh/uv/",
+        ["python"],
+    )
+    assert (replaced["aliases"], replaced["source"]) == (
+        ["Paketverwaltung"],
+        "https://docs.astral.sh/uv/",
+    )
+
+
+@pytest.mark.parametrize(
+    ("aliases", "source"),
+    [
+        (['Say "hi"'], None),
+        (["ok"], "https://x.ch/$HOME"),
+        (["two\nlines"], None),
+        ([" "], None),
+        (["ok"], "C:\\Users\\me"),
+    ],
+    ids=["quote-alias", "dollar-source", "newline", "blank-alias", "backslash-source"],
+)
+def test_a_bad_alias_or_source_writes_nothing(world, aliases, source):
+    config, _ = world
+    before = sorted(config.vault.rglob("*"))
+
+    with pytest.raises(LibraryError):
+        library_write(config, "Python", "Fresh", "x\n", TODAY, aliases=aliases, source=source)
+
+    assert sorted(config.vault.rglob("*")) == before
+
+
+def test_the_write_command_replaces_only_with_replace_and_expect(world, monkeypatch, capsys):
+    config, _ = world
+    monkeypatch.setattr("dory.cli.load_config", lambda: config)
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("Replaced.\n"))
+    current = sha(config.vault / UV)
+
+    refused = main(["library-write", "--folder", "Python", "--title", "Package management"])
+    without_hash = main(
+        ["library-write", "--folder", "Python", "--title", "Package management", "--replace"]
+    )
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("Replaced.\n"))
+    done = main(
+        [
+            "library-write",
+            "--folder",
+            "Python",
+            "--title",
+            "Package management",
+            "--replace",
+            "--expect",
+            current,
+            "--alias",
+            "uv",
+            "--alias",
+            "pip replacement",
+            "--source",
+            "https://docs.astral.sh/uv/",
+        ]
+    )
+
+    err = capsys.readouterr()
+    assert (refused, without_hash, done) == (1, 1, 0), err
+    assert (
+        "--replace --expect" in err.err
+        and "Replaced library/Python/Package management.md" in err.out
+    )
+    assert read_frontmatter(config.vault / UV)["aliases"] == ["uv", "pip replacement"]

@@ -21,19 +21,26 @@ These rules apply to every write into the vault, whether it comes from the worke
 
 ## What counts as knowledge
 
-An entry holds **one** insight that really matters. The test: **would someone working in this repository tomorrow, reading the CLAUDE.md and the code, make a mistake or lose time without it?** Only if the answer is yes, it becomes an entry, in the section of its kind:
+An entry holds **one** insight that really matters. The test: **would someone working in this repository tomorrow, or the user in any later session, make a mistake or lose time without it?** Only if the answer is yes, it becomes an entry, in the section of its kind:
 
 | Section | Example |
 |---|---|
 | `## Pitfalls` | A pitfall with cause and remedy |
-| `## Decisions` | We use X instead of Y because Z, where the repository does not say so |
+| `## Decisions` | We use X instead of Y because Z, about the system (architecture, tools, design), where the repository does not say so |
 | `## Facts` | A fact about a system, customer or environment outside the code (port, path, version, ownership) |
 | `## How-to` | A procedure the user carried out this way |
 | `## Preferences` | How the user wants to work |
 
+Knowledge that is easy to mistake for a step of the session, and is an entry all the same:
+
+- **A limit, throttling or failure that changed how the work was done**, e.g. "Foundry throttles at 6 parallel calls and answers break off, so the tests run through a separate Anthropic workspace" (`## Pitfalls` in the project's `knowledge.md`, since it shaped how the project's work runs).
+- **A preference the user states in passing**, also when it concerns no repository, e.g. "Mermaid diagrams only when a flow really needs one" (`## Preferences`, in a topic file when it holds everywhere).
+- **A working rule the user sets for how to work**: where something goes, what is filed where, what a file may hold, e.g. "`known-issues.md` holds only errors already in the knowledge base's transcript; errors of the service are fixed in the service". It is a preference also when the session phrases it as "the user decided" (`## Preferences` in the project's `knowledge.md`; without a project, see "Where an insight goes").
+- **How a system, service or business process outside this repository's code behaves with an input** (not what the repository's own scripts or code do), e.g. "a new version of a document uploaded without deleting the old one adds its values to the existing product" (`## Facts`).
+
 Not knowledge: what was built or changed in the session, how the code works or what a script does (the repository shows it), the steps of the session, intermediate states, guesses without confirmation ("probably"), general textbook knowledge. These belong in the session note under `## Log`, if anywhere.
 
-**Most sessions add nothing to a knowledge file, and that is a normal result.** A session that implemented, tested and reviewed something without hitting a pitfall, settling a decision the repository does not record, or learning a fact about a system outside the code ends with its session note only.
+A session that implemented, tested and reviewed something without any of the above ends with its session note only; that is a normal result.
 
 The test decides about new entries. **An existing entry that the session shows to be wrong or outdated is always corrected** (see "Keeping the file current"), even if the new state alone would not have been worth an entry: a wrong entry does more harm than a missing one.
 
@@ -41,9 +48,15 @@ The test decides about new entries. **An existing entry that the session shows t
 
 With a task file, the bundle lists copies of the project's CLAUDE.md and records under `## Repository documents`. **For every insight, before you add or change an entry, Grep these files for its key terms** (a port, a setting, an error message, a service or tool name).
 
-- **What the CLAUDE.md states never becomes an entry**, wherever in the file it stands. If the session worked on it, the session note mentions it under `## Log`.
-- **What a record states becomes an entry only if it matters beyond that record's own feature**: a pitfall or fact about a platform, service or tool the whole project uses (e.g. a limit of the hosting platform that every container runs into). Such an entry is a pointer: the bold lead, one sentence, then the record by file name and title, e.g. "Details: `043-probe-guard.md` (Probe guard)." A detail of the feature the record designs (its formula, its fields, its steps) gets no entry.
-- **Remove what the CLAUDE.md now states.** When the project's `knowledge.md` holds an entry whose content the CLAUDE.md now states, delete that entry from the file and name it in the session note with the reason.
+The CLAUDE.md is not a durable store: its status, next step and recent decisions are rewritten and pruned, and many sessions end without updating it. So what it states does not decide by itself.
+
+- **Behaviour the CLAUDE.md states still becomes an entry when it passes the test**: a pitfall, a limit, how a system, service, tool or process outside the repository's code behaves, a procedure the user follows. An existing entry of this kind stays, even when the CLAUDE.md now states the same.
+- **A decision about the system the CLAUDE.md states never becomes an entry**, wherever in the file it stands; the CLAUDE.md and the records are where decisions live. If the session worked on it, the session note mentions it under `## Log`. A decision about the system that no CLAUDE.md or record states goes under `## Decisions`.
+- **A working rule the user sets is a preference, not a decision**, even when the session calls it one: it becomes an entry under `## Preferences` unless the CLAUDE.md states the rule itself. A CLAUDE.md that only names the file or folder the rule is about does not state it. An existing entry of this kind stays, even when the CLAUDE.md now states the rule.
+- **Remove a decision entry the CLAUDE.md now states.** When the project's `knowledge.md` holds an entry under `## Decisions` whose content the CLAUDE.md now states, delete that entry and name it in the session note with the reason.
+- **What a record states follows the same line**: behaviour that passes the test becomes an entry, such as a pitfall or limit of a platform, service or tool the project uses (e.g. a limit of the hosting platform that every container runs into), or how the system the record designs behaves when one works with it. The record's decisions and the design of its feature (its formula, its fields, the steps of its code) get no entry.
+- **The vault stands on its own.** An entry never points to a record or another document outside the vault ("Details: `043-probe-guard.md`", "see the CLAUDE.md"): it holds the substance itself, briefly and completely, so that it is understood without the repository. Paths and commands one uses to do something (`deploy-loki.sh`, `compose-deploy.sh check`) are not such references and stay.
+- Descriptions of the code stay out, whichever document states them.
 - If the bundle says the documents were not captured, or there is neither a CLAUDE.md nor a record, skip this check.
 
 ## The user's notes
@@ -56,6 +69,7 @@ The task names the user's notes for the project: the files in `projects/<project
 - `projects/<project>/knowledge.md` for the session's project: its stack, services, configuration, deployment, customers, and every preference or rule the user set for the project ("in this project", "here", "for the app"), even if it would also be true elsewhere (e.g. "Loki port 3100 clashes with Grafana" in a project that runs both). Never another project's file, even when the insight holds for it too.
 - **A topic file in `notes/`** for what applies everywhere and is not private: facts and pitfalls about tools, services and accounts that have nothing to do with the project's code or setup (e.g. "Notion deletes embedded databases when a page is overwritten", "the Outlook connector is tied to the company account"), and ways of working the user states without reference to a project. One file per topic (see "Topic files in `notes/`").
 - **Private content becomes no entry anywhere:** family, finances, health, shopping, and **the user's own devices and home infrastructure** (NAS, home network, private servers, domains and apps for personal use), even when it comes up in a work session. Mention it in the session note under `## Log` at most; an item for a list or register still goes onto it.
+- **Except when that device or infrastructure is the session's project itself** (a repository that manages the user's NAS): then its insights go into that project's `knowledge.md` like in any project, and never into topic files.
 - **In a private project's session** (the task says so), what applies beyond the project becomes no entry: change or create no topic file, only lists and registers the session touched.
 - Without a project, a rule the user set for a folder or undertaking does not become an entry; it is mentioned only in the session note under `## Log`.
 
@@ -104,7 +118,13 @@ updated: 2026-10-21
 
 ## Keeping the file current
 
-Before every new entry, read the file it goes into (the project's file is in full in your context; Grep the topic files in `notes/` for the key terms). **An entry on the same subject is extended, even if the new insight adds a different angle** (e.g. an existing "Loki listens on port 3100" is extended with "and clashes with Grafana"). Never write a second entry on the same subject.
+Before every new entry, read the file it goes into (the project's file is in full in your context; Grep the topic files in `notes/` for the key terms). The task names a catalog with the lead of every entry in the vault, by file: check each insight against it. **An entry on the same subject is extended, even if the new insight adds a different angle** (e.g. an existing "Loki listens on port 3100" is extended with "and clashes with Grafana"). Never write a second entry on the same subject.
+
+**What another project's file already states.** You never write into another project's file, and each session loads only its own project's file and `notes/`. When the insight concerns this project's own setup, it goes into this project's file as well. When it holds for any project that uses the tool or service, it goes into the topic file of that subject, and the session note names the other project's entry under `## Open`, so the user can remove the copy there.
+
+**When unsure whether an insight matches an entry,** treat it as a new subject.
+
+**The catalog's flags.** An entry marked `changed after this session` holds newer knowledge than the session: an insight that contradicts it does not rewrite it; name the contradiction in the session note under `## Open`. An entry marked `missing path` or `unchanged since` may be outdated: when the session touches its subject, check it against what the session shows and correct it if it is wrong. A flag alone is no reason to change or remove an entry.
 
 1. **The same subject has an entry:** extend it in place. **An entry always describes the current state:** rewrite what the new insight makes outdated instead of adding to it. No dated states ("As of 14.10.", "Update:", "Previously").
 2. **The new insight contradicts the entry's bold lead** (e.g. a port has changed, a step now happens elsewhere): correct the entry in place, with a new bold lead that states the new core statement and nothing left of the old one.

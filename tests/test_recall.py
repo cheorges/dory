@@ -428,3 +428,49 @@ def test_hook_is_fast_with_500_files_in_notes_and_500_earlier_notes(world):
     assert f"## {HUB}/knowledge.md" in context
     assert "K 499" not in context
     assert elapsed < 1.0
+
+
+def test_an_entry_whose_repository_path_is_gone_carries_a_marker(world):
+    config, repos = world
+    repo = repos["ai-assistant-hub"]
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "deploy.sh").write_text("#!/bin/sh\n")
+    write(
+        config.vault,
+        f"{HUB}/knowledge.md",
+        f'---\ntype: knowledge\ndomain: work\npaths: ["{repo}"]\n---\n## How-to\n'
+        "- **Deploy with `scripts/deploy.sh`.** It waits.\n"
+        "- **Seed with `scripts/seed.sh`.** Before the first start.\n",
+    )
+
+    text = recall(hook(repo), config)
+
+    assert "- **Deploy with `scripts/deploy.sh`.** It waits.\n" in text
+    assert (
+        "- **Seed with `scripts/seed.sh`.** Before the first start. "
+        "(check: `scripts/seed.sh` no longer exists in the repository)"
+    ) in text
+
+
+def test_the_marker_does_not_change_the_summary_digest(world, monkeypatch):
+    from dory import recall as recall_module
+
+    config, repos = world
+    repo = repos["ai-assistant-hub"]
+    (repo / "scripts").mkdir()
+    (repo / "scripts" / "deploy.sh").write_text("#!/bin/sh\n")
+    write(
+        config.vault,
+        f"{HUB}/knowledge.md",
+        f'---\ntype: knowledge\ndomain: work\npaths: ["{repo}"]\n---\n## How-to\n'
+        "- **Seed with `scripts/seed.sh`.** Before the first start.\n",
+    )
+    seen = []
+    monkeypatch.setattr(
+        recall_module.summary, "needs_summary", lambda text, cfg: seen.append(text) or False
+    )
+    monkeypatch.setattr(recall_module.summary, "limit_chars", lambda cfg: 10)
+
+    recall(hook(repo), config)
+
+    assert seen and all("no longer exists" not in text for text in seen)

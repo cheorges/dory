@@ -1,14 +1,15 @@
-# Auto state: One knowledge file per project (Record 003, release 0.4.0)
+# Auto state: Capture knowledge reliably (Record 008, release 0.11.0)
 
 ## Brake
 
-off
+Entscheid: release by the author (fetch, tag v0.10.0, push, pull request, merge commit, tag v0.11.0)
 
 ## Cut
 
 not due
 
 ## Next task
+
 
 ## Review
 
@@ -19,84 +20,88 @@ each iteration
 | What | Where |
 |---|---|
 | Repo | `~/Development/cheorges/dory` |
-| Branch | `feat/knowledge-file` |
-| Return point | `603eea3` on `origin/main`; everything after it is the loop and unpushed |
+| Branch | `feat/knowledge-capture`, branched from `feat/library-dialog` at `4c2e765`; that branch is merged into `main` as 0.10.0 (pull request #6, `3a82984`), its tag `v0.10.0` is still missing |
+| Return point | `4c2e765` on `origin/feat/library-dialog`; everything after it is the loop and unpushed |
 | Quick round | `uv run pytest -q tests/<file the iteration touches>` |
-| Full proof | `uv run pytest -q && uv run ruff check .` (164 tests at setup, live checks deselected). Runs before every cut and as the first step of a fresh session |
-| Live checks | `DORY_LIVE=1 uv run pytest -m live` in iterations that change the worker, the rules or `/dory:note` (S1, S3, S4). Real `claude -p` runs with Haiku in throwaway vaults; they count against the usage limit |
-| Design | `docs/records/003-project-knowledge-file.md` |
-| Implementation log | `docs/implementation-log.md`, the repository's English counterpart of the `umsetzungs-log` |
+| Full proof | `uv run pytest -q && uv run ruff check .` (294 tests at setup, live checks deselected). Runs before every cut and as the first step of a fresh session |
+| Live checks | `DORY_LIVE=1 uv run pytest -m live tests/test_live_rules.py` in iterations that change the rules or the bundle (S1, S4). Real `claude -p` runs in throwaway vaults; they count against the usage limit |
+| Design | `docs/records/008-knowledge-capture.md` |
+| Research behind S4 | `docs/notes/reports/Wissensablage Skills für dory library.md` (gitignored) |
+| Implementation log | `docs/implementation-log.md` |
 | Calibration journal | `docs/calibration-journal.md` |
 | Actual times | herdr journal `~/.herdr-journal/dory/dory.jsonl` |
 
 ## Queue
 
-Acceptance criteria per story are in Record 003, `## User Stories`. Order by risk: the worker change with live checks first, then the session start, the summary, the note command, search, release. Estimates follow the actual times of Record 002 (S1 there: 3 h estimated, 25 min agent time).
+Order: the security fix first (three transcript copies hold a real Anthropic key), then the rules, then the catalog that keeps the wider rules from adding duplicates, then the comparison run that measures both, then the release text. Estimates follow the actual times of Records 003 and 004 (a rules or worker story took 20 to 30 min agent time).
 
 | Step | Est. (h) | Acceptance criterion | State |
 |---|---|---|---|
-| D: design review | 0.3 | Architect review of Record 003 against the code; findings worked in or put to the user; ok by the user | fertig |
-| S1: entries and post-run checks | 1 | Record 003, Story S1: entry parser, baseline, diff with pairing, frontmatter and `notes.md` restored, unexpected files logged, `dory status` counts; unit tests | fertig |
-| S2: the worker keeps one knowledge file per scope | 1.5 | Record 003, Story S2: permission probe first; `knowledge.md` created, extended, corrected and pruned; no entry lost at about 15,000 characters; `notes.md` untouched; placement in project, `general/`, `private/`; 0.3.0 files left alone; `vaultops.py` and the project overview gone | fertig |
-| S3: the session start loads the files | 0.5 | Record 003, Story S3: fixed paths, notes before knowledge, `private/` only outside work projects, cut with paths over the limit, the limit covers the whole text, 0.3.0 files ignored | fertig |
-| S4: a summary over the limit | 1.5 | Record 003, Story S4: live probe for the summary command first; one text function for both sides, summary per context by the worker, marks, stale and missing cases, failure handling | fertig |
-| S5: `/dory:note` writes the user's notes | 0.5 | Record 003, Story S5: `dory add-note --scope`, project `notes.md`, `general/` on request, `private/` by content, lists from any session | fertig |
-| S6: search finds single entries | 0.3 | Record 003, Story S6: entries scored on their own, domain boundary by folder and project, 0.3.0 files not shown | fertig |
-| S7: release 0.4.0 prepared | 0.3 | Record 003, Story S7: version 0.4.0 in three files, CHANGELOG, README and CLAUDE.md; committed, not tagged, not pushed. Then halt: the author merges, tags, pushes and installs | fertig |
+| T: transcript copies deleted after processing | 0.5 | The copy under `~/.local/state/dory-brain/transcripts/` is deleted when its entry is processed or skipped; an entry still queued or parked in `failed/` keeps its copy (`dory retry` moves parked entries back); copies without an entry are swept; `bundle.md` under `work/` stays (Story 2 replays it); unit tests for the three cases; guide and CHANGELOG say what is kept | fertig |
+| S1: rules that capture behaviour and preferences | 1 | Record 008, Story 1 | fertig |
+| S4: a catalog of every entry in the bundle | 1 | Record 008, Story 4 | fertig |
+| S5: trace of changed or removed entries | 0.5 | Record 008, Story 5 | fertig |
+| S6: signal for stale entries | 1 | Record 008, Story 6 | fertig |
+| S2: comparison run against the real bundles | 1 | Record 008, Story 2; writes only into throwaway vault copies and a throwaway state directory | fertig |
+| S1b: a rule the user sets is a preference | 0.3 | A working rule the user sets in a session (where something goes, how something is filed), also phrased as "the user decided", becomes a `## Preferences` entry; a decision no CLAUDE.md states still goes under `## Decisions`; a live check with the `known-issues.md` case passes; the whole live rules suite stays green | fertig |
+| S3: release 0.11.0 prepared | 0.3 | Record 008, Story 3, without merge, tag and push: version in the three files, CHANGELOG, guide, CLAUDE.md, Record 008 Done; committed. Then halt: the author tags `v0.10.0`, then merges this branch, tags and pushes | fertig |
+| L1: no silent replacement, aliases and source | 0.5 | Record 009, Story 1 | fertig |
+| L2: the whole vault in the library context | 0.5 | Record 009, Story 2 | fertig |
+| L3: a test vault that measures link proposals | 0.5 | Record 009, Story 3 | fertig |
+| L4: candidates computed in code | 1 | Record 009, Story 4 | fertig |
+| L5: the dialog uses the candidates | 1 | Record 009, Story 5; live checks in `tests/test_live_note.py` | fertig |
+| L6: release text for Record 009, then halt for merge and tag | 0.2 | Record 009, Story 6; full proof green; committed. Then halt: the author tags `v0.10.0`, merges this branch, tags `v0.11.0` and pushes | fertig |
 
 ## History
 
 | Date | Step | What moved |
 |---|---|---|
-| 2026-10-19 | setup | Record 003 designed with the user: decisions 1 to 6, solution, six stories. Branch `feat/knowledge-file` from `603eea3`, full proof green (164 tests). The state file of Record 002 replaced; that loop had finished on 2026-10-17 |
-| 2026-10-19 | D | Architect review of Record 003 against the code: 19 findings (3 P1: corrections counted as removals, the worker could flip a project's domain, 0.3.0 files in the project folder) worked in; story S1 split into the post-run checks (new S1) and the worker (S2), seven stories now. User decision: no guard that undoes large removals (decision 2 stays). Ok by the user |
-| 2026-10-19 | S1 | Entry parser and diff (`entries.py`), skeletons, per-attempt baseline and post-run checks (`baseline.py`), wired into `ingest.py`, counts in `dory status`; 186 unit tests. Three review passes, 9 findings (one P1: a baseline kept across attempts undid the user's edits), all fixed with a failing-first test; Record 003 now says the baseline is per attempt. Ok by the user |
-| 2026-10-19 | S2 | Worker writes one `knowledge.md` per scope: rules and ingest skill rewritten, task lists the files, `notes.md` denied by a permission rule (live probe 3 of 3), `scopes.py`, `vaultops.py` removed; live suite rewritten, 25 of 25, new checks 3 of 3, size check 40 entries without loss (Haiku 0.006 USD, Sonnet 0.088 USD); two review passes, 11 findings fixed (lead pairing restricted and rewritten leads counted, 0.3.0 private domain kept, no `general/` from private projects). Ok by the user |
-| 2026-10-19 | S3 | Session start loads the files: `scopes.context_files` (load table), `context.py` (the text the worker will summarize in S4), `recall.py` rewritten (fixed paths, notes before knowledge, `private/` by the load table, lists by domain, cut in load order with marker and paths), `search.py` keeps its 0.3.0 helpers until S6; 168 unit tests. Review: three agents, then one; 5 findings fixed (P2: a list-valued `type` under `notes/` crashed the session start, found by all three); open for S4: one threshold for session start and worker. Ok by the user |
-| 2026-10-19 | S4 | Summary over the limit: one threshold on both sides (context text against 80 % of the limit, in Record 003), `summary.py` (contexts `project-<name>`, `_general`, `_outside`, hash, store, marks), `summarize.py` (the `claude -p` run without tools or hooks, failure cap, `kind: summary` in `runs.log`), `spawn.py`, summary step in `worker.run`, `recall.py` loads or asks for the summary; 188 unit tests, live probe with control and length/language check 3 of 3 (about 0.0016 USD per summary with Haiku). Review: three agents, then one; P1 fixed (every test run started a real worker on the user's state; real state checked, nothing processed, two empty folders left), P2 reserved context names, five P3. Ok by the user |
-| 2026-10-19 | S5 | `/dory:note` writes the user's notes: `dory add-note --scope project\|general\|private` (one dated bullet in the user's words, the line also into the baselines of queued entries, the context that loads the file marked, the worker started), `baseline.notes_lock` between add-note, capture and the notes restore, `prepare-note` with project, domain and scopes, the note skill only chooses; 203 unit tests, the live note suite back (7 checks, 3 of 3 with Haiku). Review: three agents, then one; P2 from all three (no lock between add-note and a running worker), two P3. Ok by the user |
-| 2026-10-19 | S6 | Search finds single entries: `search.py` rewritten on `entries.parse` (entries of every `knowledge.md` and `notes.md`, session notes, lists), domain by folder, project and own `domain`, 0.3.0 files never read, a user note shown whole; 206 unit tests, live search checks 3 of 3. Review: three agents, all `correct`, three small findings fixed (ranking test, byte order mark, notes cut mid-word). Ok by the user |
-| 2026-10-19 | S7 | Release 0.4.0 prepared: version in the three files, CHANGELOG, README and CLAUDE.md for the 0.4.0 model, Record 003 Done; documentation review against the code, six findings worked in (P2: keep a private project's 0.3.0 overview until its `knowledge.md` exists). Ok by the user; at the user's request the branch was squashed into one commit and opened as a pull request. Loop done |
+| 2026-10-23 | setup | Record 008 designed with the user (decisions 1 to 3, solution, stories 1 to 3); story 4 (catalog) added after the research on filing tools, at the user's go. Branch `feat/knowledge-capture` from `4c2e765`, full proof green (294 tests). The state file of Record 003 replaced; that loop had finished on 2026-10-19 |
+| 2026-10-24 | L6 | CHANGELOG 0.11.0, guide, CLAUDE.md, Record 009 for the library changes; review: two agents, one shared P3 (the 20,000-character claim) and the missing fetch; 375 tests. Ok by the user, who then asked for a review of the whole branch |
+| 2026-10-24 | L5 | Skill: draft first, `library-candidates`, multi-select links with reasons, extend or nothing to write on a duplicate, show the text first, aliases and source, Read only; duplicate rule widened (an entry's name in the draft's title); 4 new live checks, library runs 44 of 45, asks-before 5 of 5; 375 tests. Review: two agents, 6 findings worked in. Ok by the user |
+| 2026-10-24 | L4 | `candidates.py` and `dory library-candidates`: six signals with reasons, duplicates by title words or a shared name; `links.wiki_names`; fixture recall 1.00 (old 0.72), duplicates 5 of 5, no leaks, 26 ms; 374 tests. Review: two agents, 5 findings worked in, each with a test red on the old code. Ok by the user |
+| 2026-10-24 | L3 | Fixture vault of 151 files with a generator and a drift test, 10 requests with 18 expected links, 5 duplicates and a privacy case; old way 0.72 among the first ten (0.83 without the cut); 356 tests. Review: two agents, 7 P3 worked in. Ok by the user, expected links unchanged |
+| 2026-10-24 | L2 | `library-context` lists every visible project's notes with description or heading, aliases, tags and links, each entry with aliases and sha256; budget 20,000 characters; `scopes.visible_projects` shared with the catalog; `describe.py`; skill reads before extending with the context's hash; 352 tests, library live 12 of 12. Review: two agents, 6 findings worked in; snapshot on unreadable files into the Future table. Ok by the user |
+| 2026-10-24 | L1 | `library-write` refuses an existing entry without `--replace --expect <sha256>`, writes `aliases` and `source`; skill step 5 extends only on purpose and keeps the entry's text; 345 tests, live extend checks 9 of 10. Found: a pre-existing flaky library check (grep outside the cwd refused), moved to Story 5. Review: two agents, 3 findings worked in. Ok by the user |
+| 2026-10-24 | Record 009 | Designed with the user: decisions 1 (candidates in code) and 2 (test vault now, the user's vault later), six stories as L1 to L6, joining 0.11.0. Ok by the user |
+| 2026-10-24 | S3 | Version 0.11.0, CHANGELOG, guide, CLAUDE.md, Record 008 In Progress; review: two agents, 2 findings (0.10.0 already merged as #6, only `v0.10.0` missing; statuses). Ok by the user, who also decided that Record 009 (library) joins 0.11.0 |
+| 2026-10-24 | S1b | Rules: a working rule the user sets is a preference, also as "the user decided"; `## Decisions` only for decisions about the system; new live checks for the `known-issues.md` case (old rules 1 of 2, new 3 of 3) and for an unstated system decision (3 of 3); live suite 35 of 35, 334 tests. Review: two agents, 4 findings worked in. Ok by the user |
+| 2026-10-24 | S2 | `spike/replay.py`: the seven reviewed sessions through main and the branch (opus): 11 against 25 entries, 3.54 against 3.87 USD; three of four missed insights back, development on `main` stays out as a decision; found that a user's working rule was taken for a decision. Review: one agent, one P3 worked in. Ok by the user, who also agreed to S1b before the release |
+| 2026-10-24 | S6 | Per-entry dates and text hash in the state directory; flags missing path, unchanged since, changed after this session (the ordering rule back); catalog, rules, status, start marker; 334 tests, live 33 of 33. Review: two agents, 8 findings (one P1), 7 worked in. Ok by the user |
+| 2026-10-24 | S5 | `## Replaced` in the session note with the previous text of every changed or removed entry, written by dory's code; failed attempts' traces held for the retry; 317 tests. Review: two agents, 4 findings worked in. Ok by the user |
+| 2026-10-24 | S4 | Catalog of every entry's lead in the bundle, privacy filters, cross-project rule in the rules (own setup in this project, tool-wide in a topic file with an Open note); 307 tests, live 32 of 32, control without catalog red 2 of 2. Review: two agents, 6 findings worked in. Ok by the user |
+| 2026-10-24 | S1 | Rules capture behaviour, limits and preferences; the CLAUDE.md blocks only decisions; no references outside the vault; home infrastructure as project. Live rules suite 30 of 30 (haiku), key checks 8 of 8. Review: two agents, 5 findings worked in. Ok by the user |
+| 2026-10-23 | S1 decision | User: no references to documents outside the vault (decision 4); trace and stale signal added as Stories 5 and 6 (decision 5), queued after S4 |
+| 2026-10-23 | T | Transcript copies deleted when their entry is processed or skipped, parked entries keep theirs for `dory retry`, a sweep clears the rest; 299 tests. Review: two agents, one shared finding (a clone kept the source's mtime, so the sweep's grace did not protect a fresh copy), fixed with a test. Ok by the user |
 
 ## Open questions
 
-- None.
+- None. (Answered 2026-10-23: no record pointers; the vault stands on its own, see Record 008 decision 4. Trace in the session note, stale signal to worker and status, at start only for a missing path: decision 5, Stories 5 and 6.)
 
 ## Last cut
 
-**2026-10-19, after S2.** Context at 60 % when the task for S3 arrived. The seam is clean: S2 reviewed by three agents plus a second pass (11 findings, all fixed), ok by the user, committed as `0e768f9`; S3 not started.
+**2026-10-24, after S2, before S1b.** Context at 50 %. The seam is clean: T, S1, S4, S5, S6 and S2 are reviewed, approved by the user and committed (last `7058788`, plus the journal fix in the cut commit). Nothing pushed; return point `4c2e765` on `origin/feat/library-dialog`.
 
-Cut done 2026-10-19.
+Cut executed 2026-10-24.
 
 ### State at the cut
 
 | | |
 |---|---|
-| Green | `uv run pytest -q && uv run ruff check .`: 170 tests; whole live suite 25 of 25 on the S2 end state (the 6 checks of `tests/test_live_note.py` skipped) |
-| Review | S2: architect, code-reviewer, security-auditor `correct`, second pass `correct`; ok by the user |
-| Committed | everything, last `0e768f9`. Nothing pushed. Return point `603eea3` on `origin/main` |
-| Done | D (design review), S1 (entries and post-run checks), S2 (the worker keeps one knowledge file per scope) |
-| Open | S3, see `## Next task`; then S4 (summary over the limit), S5 (`/dory:note` writes notes), S6 (search by entry), S7 (release prepared, then halt for the author) |
+| Green | `uv run pytest -q && uv run ruff check .`: 334 tests; live rules suite 33 of 33 at S6 |
+| Committed | everything; S1b not started |
+| Open | S1b (see `## Next task`), then S3 (release text, no merge/tag/push) |
 
-### How the next session starts
+### What the next session starts with
 
-1. `## Cut` back to `not due`, a line "Cut done <date>" here.
-2. The full proof: green before anything is touched. It is also the check that the cut was clean.
-3. S3 as written under `## Next task`.
+1. The full proof: green before anything is touched.
+2. S1b after `## Next task`: the live check first, against the current rules, then the rules.
 
-### What is not in the plan and still holds
+### What the plan does not say and still holds
 
-- User decisions so far (all in Record 003): 1 = no size limit on `knowledge.md`, 2 = fixed sections, edits and a diff after the run, without a guard that undoes large removals, 3 = the worker reads `notes.md` and never changes it, 4 = one pair of files per scope with `general/` (work) and `private/`, and `/dory:note` can write general notes from within a project, 5 = no migration, 0.3.0 notes are simply no longer loaded, 6 = the summary is made in the background by the worker, never at session start.
-- The rules live in `plugin/skills/rules/SKILL.md`; `/dory:note` reads them too (through `dory prepare-note`, "without a task file"), so a rule that needs the bundle says it applies with a task file.
-- Live checks: `DORY_LIVE=1 uv run pytest -m live -q -p no:cacheprovider -k <name> tests/test_live_rules.py`, about 25 s per worker run with Haiku. `--basetemp=<scratchpad dir>` keeps each test's `state/runs.log` with `cost_usd`. `World.session` queues with `cwd` = `world.hub` (a `git init` repository without commits), so `world.hub / "CLAUDE.md"` and `world.hub / "docs" / "records" / *.md` reach the worker as captured documents.
-- Reviews: write `git diff HEAD` (after `git add -N` for new files) to a file in the scratchpad and give the agents its path; paste the reviewer contract from `/kolibee:do-review` verbatim; add the security-auditor when secrets, customer content or the hook path are touched.
-- Actual times: agent and human minutes from the `agent_start`/`agent_stop` pairs in `~/.herdr-journal/dory/dory.jsonl`.
-- Commit messages carry no `Co-Authored-By` or other trailers (the user's global rule; the history has none). The values in the `State` column are the auto skill's German words (`offen`, `läuft`, `fertig`, `bewusst offen`).
-- The Bash tool runs zsh: an unquoted `$VAR` holding several paths is not split into words. `ls` is aliased to `eza`, which rejects `ls <dir>/` with an `--icons` error; use `/bin/ls`.
-- Tests never touch the real vault or config: `tests/conftest.py` points `DORY_CONFIG` at a throwaway file. The real config has `language = "German"`; the real vault is `~/Documents/dory`, and the installed plugin there is 0.3.0 from GitHub.
-- Where S1 and S2 put things: `plugin/dory/scopes.py` is the vault layout (`knowledge_files(project, domain)` leaves out `general/` for a private project; `project_domain` reads the project's `knowledge.md`, before it exists a 0.3.0 overview; `notes_files`). `plugin/dory/entries.py` parses entries and diffs them (S6 search reuses `parse`). `plugin/dory/baseline.py` holds skeletons, the per-attempt baseline under `<state>/baselines/` and the post-run checks. `recall.py` and `search.py` are still on the 0.3.0 model; `search.py` imports `Note`, `allowed`, `project_domain` and `scan` from `recall.py`.
-- `tests/test_live_note.py` is skipped with a module-level mark until S5. `tests/test_live_rules.py` has the helpers `World.knowledge_file`, `user_notes`, `entries_about`, `changes` and `realistic_knowledge()` (40 entries, 14,095 characters).
-- Live runs: about 0.005 USD and 25 s per worker run with Haiku. The whole live suite takes about 9 minutes, longer than one 10-minute tool call: run it in two halves with `-k`, each with its own `--basetemp=<scratchpad>/<name>`.
-- macOS `sed` has no `\b`: a `sed 's/\bX\b/Y/g'` silently changes nothing (it hid a rename in S2). Use `perl -pi -e` for word boundaries, and grep after every scripted edit.
-- Record 003 lists a known limit: a hand edit to a `notes.md` during a worker run is undone and logged as `restored`; S5's `dory add-note` must write into the baselines of queued entries (an S5 criterion).
-- Facts behind the problem section: ai-assistant-hub held 13 knowledge notes with 15,470 characters on 2026-10-19 (7 of them written by the old 0.2.0 worker of sessions that started before the update); the recall budget of 1,500 tokens is about 6,000 characters.
+- Live checks run with haiku (`DORY_LIVE_MODEL` default); the user's worker runs opus. A whole live rules suite takes about 10 minutes; run it in the background and pull `Waiting:` meanwhile.
+- After changing rules or code, an earlier background live run keeps the old modules loaded; its result does not count. Stop it (`pkill -f "pytest -m live tests/test_live_rules.py"`) and rerun.
+- The user's global CLAUDE.md forbids `Co-Authored-By` lines; commits end with the `Claude-Session:` line only.
+- Research reports (gitignored): `docs/notes/reports/Wissensablage Skills für dory library.md` (library, basis for a later Record 009) and `docs/notes/reports/Second Brains für Coding Agenten.md`.
+- The comparison run's output stays in the scratchpad `replay/` of the earlier session and may be gone; `spike/replay.py --out <new dir>` reruns it (about 7.4 USD API equivalent with opus).
+- For S3: the guide must say that entries never point to records (decision 4), that transcript copies are deleted (T), the trace in the session note (S5), the flags and `dory status` line (S6); CHANGELOG has an `Unreleased` section from T to fold into 0.11.0.

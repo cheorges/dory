@@ -21,8 +21,8 @@ from dory.names import name_key
 from dory.scopes import LIBRARY, LIBRARY_KEY
 
 _FENCE = ("```", "~~~")
-_INLINE_CODE = re.compile(r"`[^`\n]*`")
-_LINK = re.compile(
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+LINK = re.compile(
     r"!?\[\[(?P<wiki>[^\]\n]*)\]\]"
     r"|!?\[[^\]\n]*\]\((?:<(?P<bracketed>[^>\n]+)>|(?P<plain>[^)\s]+))\)"
 )
@@ -37,7 +37,7 @@ def library_entries(vault: Path, text: str) -> list[Path]:
     if not library.is_dir():
         return []
     found: list[Path] = []
-    for target in _targets(_INLINE_CODE.sub("", _without_fenced_code(text))):
+    for target in _targets(INLINE_CODE.sub("", without_fenced_code(text))):
         path = _resolve(vault, library, target)
         if path is not None and path not in found:
             found.append(path)
@@ -54,7 +54,7 @@ def linked_by_property(vault: Path, path: Path) -> list[Path]:
     return library_entries(vault, text)
 
 
-def _without_fenced_code(text: str) -> str:
+def without_fenced_code(text: str) -> str:
     """The lines outside fenced code; an indented fence counts, an unclosed one runs to the end."""
     kept, fenced = [], False
     for line in text.splitlines():
@@ -65,8 +65,23 @@ def _without_fenced_code(text: str) -> str:
     return "\n".join(kept)
 
 
+def wiki_names(text: str) -> list[str]:
+    """The note names the wikilinks in `text` point to, outside code: `[[a/b.md#h|x]]` is `b`.
+    A dot inside a name (`Node.js`) stays, a table's `\\|` and a `.md` suffix do not."""
+    names = []
+    for match in LINK.finditer(INLINE_CODE.sub("", without_fenced_code(text))):
+        if match["wiki"] is None:
+            continue
+        target = match["wiki"].split("|", 1)[0].removesuffix("\\").split("#", 1)[0].strip()
+        name = target.rsplit("/", 1)[-1]
+        name = name[:-3] if name.lower().endswith(".md") else name
+        if name:
+            names.append(name)
+    return names
+
+
 def _targets(text: str) -> Iterator[str]:
-    for match in _LINK.finditer(text):
+    for match in LINK.finditer(text):
         if match["wiki"] is not None:
             target = match["wiki"].split("|", 1)[0].removesuffix("\\")  # `\|` in a table
         else:

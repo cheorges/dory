@@ -61,3 +61,19 @@ def project_domain(vault: Path, project: Project | None) -> str:
     if not source.exists():
         source = folder / f"{project.name}.md"
     return "private" if read_frontmatter(source).get("domain") == "private" else "work"
+
+
+def visible_projects(vault: Path, project: Project | None) -> list[str]:
+    """The projects whose files a session may list, its own first: a private project's session
+    sees only its own project, and no other session sees a private project."""
+    own = project.name if project and project.name else None
+    if own and project_domain(vault, project) == "private":
+        return [own]
+    others = sorted(
+        path.name
+        for path in (vault / "projects").glob("*")
+        if path.is_dir()
+        and path.name != own
+        and project_domain(vault, Project(path.name, path)) != "private"
+    )
+    return [own, *others] if own else others

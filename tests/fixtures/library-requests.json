@@ -1,0 +1,200 @@
+[
+  {
+    "id": "uv-lock",
+    "project": "dory",
+    "title": "uv lock files",
+    "aliases": [
+      "uv",
+      "Lockfile"
+    ],
+    "content": "uv writes uv.lock with the exact versions; `uv sync` installs exactly what it says, so a fresh checkout gets the same packages as the author's machine.",
+    "key_terms": [
+      "uv",
+      "lock",
+      "pip"
+    ],
+    "expected_links": [
+      "notes/Python.md"
+    ],
+    "expected_duplicate": "library/Python/Package management.md",
+    "forbidden_prefix": null
+  },
+  {
+    "id": "loki-retention",
+    "project": "ai-assistant-hub",
+    "title": "Loki retention",
+    "aliases": [
+      "Log retention"
+    ],
+    "content": "Loki keeps logs for 30 days on the customer VMs; the compactor deletes older chunks and needs the folder /loki/compactor on the volume.",
+    "key_terms": [
+      "loki",
+      "retention",
+      "compactor"
+    ],
+    "expected_links": [
+      "projects/ai-assistant-hub/notes/Loki port.md",
+      "projects/ai-assistant-hub/notes/Customer VM setup.md"
+    ],
+    "expected_duplicate": null,
+    "forbidden_prefix": null
+  },
+  {
+    "id": "bexio-api",
+    "project": "dory",
+    "title": "Bexio-Rechnungen per API",
+    "aliases": [
+      "Bexio API"
+    ],
+    "content": "Rechnungen legt man in Bexio über die API v2 an, mit einem Personal Access Token pro Benutzer. Der Webshop erstellt so für jede Bestellung eine Rechnung.",
+    "key_terms": [
+      "bexio",
+      "rechnung",
+      "token"
+    ],
+    "expected_links": [
+      "projects/webshop/notes/Rechnungsstellung.md",
+      "notes/Bexio.md"
+    ],
+    "expected_duplicate": null,
+    "forbidden_prefix": null
+  },
+  {
+    "id": "commit-format",
+    "project": null,
+    "title": "Commit message format",
+    "aliases": [
+      "Conventional commits"
+    ],
+    "content": "Every commit message reads `type(scope): description` in English; the scope is required, e.g. `fix(api): handle null response`.",
+    "key_terms": [
+      "commit",
+      "scope",
+      "conventional"
+    ],
+    "expected_links": [
+      "notes/Git.md",
+      "projects/dory/notes/Release steps.md"
+    ],
+    "expected_duplicate": "library/Git/Commit messages.md",
+    "forbidden_prefix": null
+  },
+  {
+    "id": "azure-quota",
+    "project": "ai-assistant-hub",
+    "title": "Azure quota requests",
+    "aliases": [
+      "Kontingent"
+    ],
+    "content": "A new customer subscription needs eight Azure OpenAI quota forms at aka.ms/oai/stuquotarequest; approval takes two to five days, so file them on day one.",
+    "key_terms": [
+      "quota",
+      "azure",
+      "subscription"
+    ],
+    "expected_links": [
+      "projects/ai-assistant-hub/notes/Quota requests.md",
+      "notes/Azure.md"
+    ],
+    "expected_duplicate": "library/Cloud/Azure quota requests.md",
+    "forbidden_prefix": null
+  },
+  {
+    "id": "steuern",
+    "project": "haushalt",
+    "title": "Steuerabzüge",
+    "aliases": [
+      "Abzüge"
+    ],
+    "content": "Abziehen lassen sich die Säule 3a, Berufsauslagen und Weiterbildungskosten; die Belege gehören zur Steuererklärung.",
+    "key_terms": [
+      "steuer",
+      "abzug",
+      "3a"
+    ],
+    "expected_links": [
+      "projects/haushalt/notes/Steuern 2025.md"
+    ],
+    "expected_duplicate": "library/Finance/Taxes.md",
+    "forbidden_prefix": null
+  },
+  {
+    "id": "compose-names",
+    "project": "box-cheorges",
+    "title": "Service names in Docker Compose",
+    "aliases": [
+      "Compose networking"
+    ],
+    "content": "Containers in one Docker Compose network reach each other by service name, e.g. http://loki:3100 or reverse_proxy app:8080; localhost inside a container is the container itself.",
+    "key_terms": [
+      "compose",
+      "service name",
+      "localhost"
+    ],
+    "expected_links": [
+      "projects/box-cheorges/notes/Caddy reverse proxy.md",
+      "notes/Docker.md",
+      "projects/ai-assistant-hub/notes/Grafana data source.md",
+      "projects/box-cheorges/notes/Compose updates.md"
+    ],
+    "expected_duplicate": null,
+    "forbidden_prefix": null
+  },
+  {
+    "id": "obsidian-properties",
+    "project": "dory",
+    "title": "Obsidian-Eigenschaften",
+    "aliases": [
+      "Properties"
+    ],
+    "content": "Eigenschaften stehen im YAML-Frontmatter, ein Wert pro Zeile; ein Link in einer Eigenschaft braucht Anführungszeichen, sonst liest Obsidian ihn als Liste.",
+    "key_terms": [
+      "eigenschaft",
+      "frontmatter",
+      "obsidian"
+    ],
+    "expected_links": [
+      "notes/Obsidian.md",
+      "projects/dory/notes/Vault location.md"
+    ],
+    "expected_duplicate": null,
+    "forbidden_prefix": null
+  },
+  {
+    "id": "headless-bash",
+    "project": "dory",
+    "title": "Bash outside the working directory",
+    "aliases": [
+      "Headless permissions"
+    ],
+    "content": "In a headless claude -p run, a Bash command on a path outside the session's working directory is refused even when the command is allowed; skills should use their own commands or the Read and Grep tools instead.",
+    "key_terms": [
+      "headless",
+      "bash",
+      "working directory"
+    ],
+    "expected_links": [
+      "notes/Claude Code.md",
+      "projects/dory/notes/Live checks.md"
+    ],
+    "expected_duplicate": null,
+    "forbidden_prefix": null
+  },
+  {
+    "id": "steuern-from-work",
+    "project": "dory",
+    "title": "Steuerabzüge",
+    "aliases": [
+      "Abzüge"
+    ],
+    "content": "Abziehen lassen sich die Säule 3a und Weiterbildungskosten; die Belege gehören zur Steuererklärung.",
+    "key_terms": [
+      "steuer",
+      "abzug",
+      "3a"
+    ],
+    "expected_links": [],
+    "expected_duplicate": "library/Finance/Taxes.md",
+    "forbidden_prefix": "projects/haushalt/"
+  }
+]
