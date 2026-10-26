@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from dory import queue, worker
+from dory import queue, staleness, worker
 from dory.state import StateDir
 
 
@@ -23,7 +23,7 @@ class Run:
     changes: tuple[dict, ...] = ()  # the vault changes the post-run checks reported
 
 
-def status(state: StateDir, now: datetime | None = None) -> str:
+def status(state: StateDir, now: datetime | None = None, vault: Path | None = None) -> str:
     state.ensure()
     now = (now or datetime.now()).astimezone()
     today = now.date()
@@ -47,6 +47,12 @@ def status(state: StateDir, now: datetime | None = None) -> str:
         f"API equivalent: today {cost_today:.2f} USD, this week {cost_week:.2f} USD"
         " (runs on the subscription, not billed)"
     )
+    if vault is not None:
+        stale = staleness.counts(state, vault, now)
+        lines.append(
+            f"Stale entries: {stale['missing path']} with a missing path, "
+            f"{stale['unchanged']} unchanged for over {staleness.STALE_DAYS} days"
+        )
     knowledge = _knowledge_today(runs, today)
     if knowledge:
         lines.append(knowledge)

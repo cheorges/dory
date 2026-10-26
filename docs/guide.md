@@ -28,14 +28,16 @@ claude plugin uninstall dory@brain
 
 **When a session ends** (`/exit`, `/clear`, closing the tab, Ctrl+C), it goes into a queue. A worker processes it in the background with `claude -p` and writes:
 
-- a session note: what was done, which entries came out of it, what is still open
-- entries in the project's `knowledge.md`, only for what matters later: a pitfall, a decision the repository does not record, a fact about a system outside the code, a how-to, a preference. Most sessions add none. An entry opens with its statement in bold (`**Loki only starts if UID 10001 owns the data directory.**`) and has at most three more sentences. The worker extends an entry on the same subject instead of adding a second one, corrects it when a session shows it is wrong, and removes it once the project's CLAUDE.md says the same.
-- knowledge that applies beyond the project into a topic file in `notes/` (`notes/Notion.md`). Private matters (family, health, money, your own devices and home network) become no entry anywhere.
+- a session note: what was done, which entries came out of it, what is still open, and under `## Replaced` the previous text of every entry the run changed or removed (dory writes that section, in folded callouts; it does not load at session start)
+- entries in the project's `knowledge.md` for what someone working in the repository, or you in a later session, would otherwise get wrong or lose time over: a pitfall, a limit or failure that changed how the work was done, a fact about a system outside the code, a how-to, a preference or working rule you set (where something goes, what a file may hold), a decision about the system the repository does not record. What was built and how the code works stay out. An entry opens with its statement in bold (`**Loki only starts if UID 10001 owns the data directory.**`) and has at most three more sentences, and it holds the substance itself: it never points to a record or the CLAUDE.md. The worker checks every insight against a catalog of all entries in the vault, extends an entry on the same subject instead of adding a second one, and corrects it when a session shows it is wrong. Behaviour the project's CLAUDE.md states still becomes an entry, since the CLAUDE.md gets pruned; a decision entry is removed once the CLAUDE.md says the same.
+- knowledge that applies beyond the project into a topic file in `notes/` (`notes/Notion.md`). Private matters (family, health, money, your own devices and home network) become no entry anywhere, unless the session's repository manages that device or network itself; then they go into its `knowledge.md`.
 - changes to lists such as the shopping list, if the session touched them
 
 **When a session starts**, a hook gives Claude the project's notes and `knowledge.md`, the library entries those notes link, then as many topic files from `notes/` as fit, each with the library entries it links, and the titles of the rest. How much it may load is a level you choose (see [Configuration](#configuration)). A project too large for that gets a summary instead. Recent sessions are not loaded; `/dory:search` finds them.
 
-**After every worker run**, dory compares the vault with its state before the run and lists removed entries, rewritten leads, changes to your notes or to `library/`, and files the run should not have touched in `runs.log`. `dory status` shows today's counts. Nothing of yours is undone automatically; snapshots are the way back.
+**After every worker run**, dory compares the vault with its state before the run and lists removed entries, rewritten leads, changes to your notes or to `library/`, and files the run should not have touched in `runs.log`. `dory status` shows today's counts. Nothing of yours is undone automatically; snapshots and the `## Replaced` section of the session note are the way back.
+
+**Stale entries.** dory keeps when each entry was added and last changed (`entries.json` in the state directory). The worker sees which entries name a backticked path that no longer exists in the repository, which are unchanged for over 90 days, and which changed after the session it is processing; it checks such an entry when a session touches its subject, and a newer entry is not rewritten by an older session. A flag alone changes nothing. `dory status` counts the first two, and the session start marks an entry whose path is gone (`(check: ... no longer exists in the repository)`).
 
 ## Commands
 
@@ -43,16 +45,17 @@ claude plugin uninstall dory@brain
 |---|---|
 | `/dory:save` | Queues the running session right away without ending it. When it ends later, only the rest is processed, as part 2. |
 | `/dory:note "how we solved the Loki port"` | Writes a note file into the project's `notes/`: what the next session must know. Claude picks a title and writes the content from your request and the session, without asking. Something that has nothing to do with the project goes into the matching topic in `notes/`, "buy milk" onto the shopping list. It never writes into `library/`. |
-| `/dory:library "uv instead of pip, because ..."` | Files knowledge you want to keep in `library/`, in a dialog: Claude says in two or three lines what the entry will sum up and mention, without printing it, then asks four questions with its proposal preselected: the folder, the title, the project notes or topic files to link it from (so that it loads where it belongs), and whether to write it, shorter or in more detail. Enter accepts the proposal; pick another option or type your own. Nothing is written before you answer. |
+| `/dory:library "uv instead of pip, because ..."` | Files knowledge you want to keep in `library/`, in a dialog: Claude drafts the entry, lets dory find the files that should link it and the entries that may already cover it, says in two or three lines what the entry will hold (length, aliases, and the entry it extends, if any), then asks four questions with its proposal preselected: the folder (or `Extend` an existing entry, or `Nothing to write`), the title, the project notes or topic files to link it from, each ticked on its own with where it then loads and why, and whether to write it, shorter, or to show the text first. Nothing is written before you answer. |
 | `/dory:search loki deploy` | Searches the whole vault, `library/` included, and shows each matching entry, note, list or session note with its file. Claude also runs it on its own when you ask about earlier knowledge. |
 
 ### In the terminal
 
 ```bash
-dory status   # queue, failed entries with reason, last error, API equivalent cost, today's checks
+dory status   # queue, failed entries with reason, last error, API equivalent cost, today's checks, stale entries
 dory retry    # move failed entries back into the queue
 dory add-note --scope project --title "Loki port" "Loki runs on 3200."   # creates a note file; /dory:note runs it
-dory library-write --folder Python --title "Package management" < entry.md   # /dory:library runs it
+dory library-candidates < draft.md   # files to link from and possible duplicates; /dory:library runs it
+dory library-write --folder Python --title "Package management" --alias uv < entry.md   # /dory:library runs it
 dory link --entry "library/Python/Package management.md" notes/Python.md     # adds the entry to the property
 ```
 
@@ -162,7 +165,7 @@ library:
 ---
 ```
 
-`/dory:library` sets that property through `dory link`. The checks after a worker run put a `library` property back if the run changed it. Links inside a library entry are not followed. The worker gets copies of the entries its session could load, so it does not write the same thing again. Search covers `library/` because a search is your own request. These limits apply to what dory loads; Claude can still read the vault directly.
+`/dory:library` sets that property through `dory link`. It proposes the files from `dory library-candidates`, which looks through the notes of every project you may link from and the topic files, and it writes an entry only through `dory library-write`: that command creates a new entry, and replaces an existing one only with `--replace --expect <sha256>` of the entry as it was read, so a typed title never overwrites an entry and an edit you saved in Obsidian meanwhile is not lost. An entry can carry `aliases` and a `source`; the dialog never invents a source. The checks after a worker run put a `library` property back if the run changed it. Links inside a library entry are not followed. The worker gets copies of the entries its session could load, so it does not write the same thing again. Search covers `library/` because a search is your own request. These limits apply to what dory loads; Claude can still read the vault directly.
 
 A project counts as work unless its `knowledge.md` says `domain: private` in the frontmatter. Sessions of a private project write no topic files, since every session lists them.
 
@@ -190,7 +193,7 @@ The `SessionEnd` hook clones the transcript to `~/.local/state/dory-brain/transc
 1. The transcript is condensed to what you and Claude wrote. Tool output, attachments and command wrappers are dropped, secrets are redacted, and lines processed before are skipped.
 2. The vault is snapshotted.
 3. `claude -p` processes the session with the writing rules in `plugin/skills/rules/SKILL.md`. The run is restricted: it sees only the vault and its own input, no CLAUDE.md, settings or other plugins, and it may neither read `library/` nor write your notes; it gets copies of the library entries its session could load.
-4. The run counts as a success only if the session note exists. On a rate limit or network error the entry is retried later; after three real failures it moves to `failed/`.
+4. The run counts as a success only if the session note exists. On a rate limit or network error the entry is retried later; after three real failures it moves to `failed/`. Once an entry is processed, its transcript copy is deleted; an entry in `failed/` keeps it until `dory retry` has processed it. The condensed transcript stays in the entry's bundle under `~/.local/state/dory-brain/work/`.
 5. dory checks the run against the snapshot: it restores the frontmatter keys that place a file (`type`, `domain`, `paths`) and logs every other change.
 6. After the queue, the worker writes a summary (at most 10,000 tokens) for each project whose files exceed 80 % of the session start's limit. It is stored under `~/.local/state/dory-brain/summaries/`, not in the vault, and rebuilt whenever the project's files change.
 

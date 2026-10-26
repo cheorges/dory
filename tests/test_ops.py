@@ -169,3 +169,17 @@ def test_status_says_nothing_about_knowledge_on_a_quiet_day(state):
     log_run(state, NOW - timedelta(hours=1), "done", 0.07)
 
     assert "Knowledge today" not in status(state, now=NOW)
+
+
+def test_status_counts_stale_entries_when_it_knows_the_vault(state, tmp_path):
+    from dory import staleness
+
+    vault = tmp_path / "vault"
+    topic = vault / "notes" / "Old.md"
+    topic.parent.mkdir(parents=True)
+    topic.write_text("---\ntype: topic\n---\n- **Old.** x\n")
+    staleness.observe(state, vault, datetime.now(UTC) - timedelta(days=100))
+
+    text = status(state, vault=vault)
+
+    assert "Stale entries: 0 with a missing path, 1 unchanged for over 90 days" in text

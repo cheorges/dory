@@ -7,8 +7,21 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-from dory import __version__, ingest, library, note, ops, queue, recall, search, summarize, worker
+from dory import (
+    __version__,
+    candidates,
+    ingest,
+    library,
+    note,
+    ops,
+    queue,
+    recall,
+    search,
+    summarize,
+    worker,
+)
 from dory.config import load_config
+from dory.project import detect_project
 from dory.spawn import spawn_worker
 from dory.state import StateDir
 
@@ -29,9 +42,16 @@ def main(argv: list[str] | None = None) -> int:
     add.add_argument("text", nargs="*", help="the note; read from stdin when left out")
     commands.add_parser("guard", help="/dory:note hook: block Write and Edit in library/")
     commands.add_parser("library-context", help="/dory:library: snapshot and context")
+    commands.add_parser(
+        "library-candidates", help="/dory:library: files to link from and possible duplicates"
+    )
     write = commands.add_parser("library-write", help="/dory:library: create or replace an entry")
     write.add_argument("--folder", default="", help="folder below library/, at most two levels")
     write.add_argument("--title", required=True, help="the entry's title, its file name")
+    write.add_argument("--replace", action="store_true", help="replace the existing entry")
+    write.add_argument("--expect", help="with --replace: sha256 of the entry as it was read")
+    write.add_argument("--alias", action="append", help="an alias of the entry; repeatable")
+    write.add_argument("--source", help="where the knowledge comes from: a URL or a [[link]]")
     linking = commands.add_parser("link", help="/dory:library: link an entry from a note or topic")
     linking.add_argument("--entry", required=True, help="the entry, e.g. library/Python/uv")
     linking.add_argument("files", nargs="+", help="project notes or topic files in notes/")
@@ -58,15 +78,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "library-context":
         print(library.library_context(load_config(), Path.cwd()))
         return 0
+    if args.command == "library-candidates":
+        return _library_candidates(sys.stdin.read())
     if args.command == "library-write":
-        return _library_write(args.folder, args.title, sys.stdin.read())
+        return _library_write(args, sys.stdin.read())
     if args.command == "link":
         return _link(args.entry, args.files)
     if args.command == "search":
         print(search.search(load_config(), Path.cwd(), " ".join(args.query)))
         return 0
     if args.command == "status":
-        print(ops.status(StateDir(load_config().state_dir)))
+        config = load_config()
+        print(ops.status(StateDir(config.state_dir), vault=config.vault))
         return 0
     if args.command == "retry":
         return _retry()
@@ -98,10 +121,33 @@ def _guard(raw: str) -> int:
     return 0
 
 
-def _library_write(folder: str, title: str, text: str) -> int:
+def _library_candidates(text: str) -> int:
     config = load_config()
     try:
-        written, new = library.library_write(config, folder, title, text)
+        draft = candidates.parse_draft(text)
+    except ValueError as error:
+        print(f"dory library-candidates: {error}", file=sys.stderr)
+        return 1
+    project = detect_project(Path.cwd(), StateDir(config.state_dir).ensure().projects_file)
+    found, duplicates = candidates.candidates(config.vault, project, draft)
+    print(candidates.render(config.vault, found, duplicates))
+    return 0
+
+
+def _library_write(args: argparse.Namespace, text: str) -> int:
+    config = load_config()
+    try:
+        if args.replace != (args.expect is not None):
+            raise library.LibraryError("--replace and --expect go together")
+        written, new = library.library_write(
+            config,
+            args.folder,
+            args.title,
+            text,
+            expect=args.expect,
+            aliases=args.alias,
+            source=args.source,
+        )
     except library.LibraryError as error:
         print(f"dory library-write: {error}", file=sys.stderr)
         return 1

@@ -291,3 +291,123 @@ def test_library_asks_before_it_writes(world):
     assert vault_files(vault) == before
     # The proposal names the topic file it would link from, and waits for the answer.
     assert "notes/Python" in output["result"], output["result"]
+
+
+UV_ENTRY = (
+    "---\ntype: library\ncreated: 2026-10-01\nupdated: 2026-10-01\n---\n"
+    "Python packages are installed with uv, never pip, because uv locks the versions.\n"
+)
+
+
+def test_library_never_drops_what_an_existing_entry_holds(world):
+    vault, state, hub, _ = world
+    write(vault / "notes" / "Python.md", PYTHON_TOPIC)
+    write(vault / "library" / "Python" / "Package management.md", UV_ENTRY)
+
+    output = run_skill(
+        vault,
+        state,
+        hub,
+        '/dory:library "Poetry is fine for small scripts. File it in the folder Python with the '
+        'title Package management, link it from nothing. No questions, write it."',
+    )
+
+    after = vault_files(vault)
+    entry = "library/Python/Package management.md"
+    assert "never pip, because uv locks the versions" in after[entry], output["result"]
+    assert "created: 2026-10-01" in after[entry], after[entry]
+
+
+def test_library_extends_an_entry_it_was_asked_to_extend(world):
+    vault, state, hub, _ = world
+    write(vault / "notes" / "Python.md", PYTHON_TOPIC)
+    write(vault / "library" / "Python" / "Package management.md", UV_ENTRY)
+
+    output = run_skill(
+        vault,
+        state,
+        hub,
+        '/dory:library "Extend the entry Python/Package management: uv sync installs exactly '
+        'what the lock file says. Link it from nothing. No questions, write it."',
+    )
+
+    text = vault_files(vault)["library/Python/Package management.md"]
+    assert "uv sync" in text and "never pip" in text, (output["result"], text)
+    assert "created: 2026-10-01" in text, text
+
+
+def test_library_links_an_entry_from_another_projects_note(world):
+    vault, state, hub, _ = world
+    write(
+        vault / "projects" / "webshop" / "notes" / "Rechnungsstellung.md",
+        "---\ntype: note\n---\n# Rechnungen aus dem Shop\nJede Bestellung wird als Rechnung in "
+        "Bexio angelegt, über die Bexio-API.\n",
+    )
+    write(vault / "projects" / "webshop" / "notes" / "Versand.md", "---\ntype: note\n---\nPost.\n")
+
+    output = run_skill(
+        vault,
+        state,
+        hub,
+        '/dory:library "The Bexio API v2 takes one personal access token per user; invoices are '
+        "created with POST /2.0/kb_invoice. Folder Bexio, title API access. Link it from the "
+        'notes it belongs to, decide yourself. No questions, write it."',
+    )
+
+    files = vault_files(vault)
+    invoices = files["projects/webshop/notes/Rechnungsstellung.md"]
+    assert "[[library/Bexio/API access|API access]]" in invoices, output["result"]
+    assert "library/Bexio" not in files["projects/webshop/notes/Versand.md"], output["result"]
+
+
+def test_library_extends_the_entry_that_already_covers_the_subject(world):
+    vault, state, hub, _ = world
+    write(
+        vault / "library" / "Python" / "Package management.md",
+        UV_ENTRY.replace("updated: 2026-10-01\n", 'updated: 2026-10-01\naliases:\n  - "uv"\n'),
+    )
+
+    output = run_skill(
+        vault,
+        state,
+        hub,
+        '/dory:library "uv sync installs exactly what uv.lock says, nothing else. Decide folder '
+        'and title yourself, link it from nothing. No questions, write it."',
+    )
+
+    library = {p: t for p, t in vault_files(vault).items() if p.startswith("library/")}
+    assert list(library) == ["library/Python/Package management.md"], (output["result"], library)
+    text = library["library/Python/Package management.md"]
+    assert "uv sync" in text and "never pip" in text, text
+    assert '- "uv"' in text and "created: 2026-10-01" in text, text
+
+
+def test_library_invents_no_source(world):
+    vault, state, hub, _ = world
+
+    output = run_skill(
+        vault,
+        state,
+        hub,
+        '/dory:library "Grafana dashboards are provisioned from files, never edited in the UI. '
+        'Folder Grafana, title Dashboards, link it from nothing. No questions, write it."',
+    )
+
+    text = vault_files(vault).get("library/Grafana/Dashboards.md", "")
+    assert text and "source:" not in text.lower() and "http" not in text, (output["result"], text)
+
+
+def test_library_proposes_extending_an_entry_that_covers_the_subject(world):
+    vault, state, hub, _ = world
+    write(
+        vault / "library" / "Python" / "Package management.md",
+        UV_ENTRY.replace("updated: 2026-10-01\n", 'updated: 2026-10-01\naliases:\n  - "uv"\n'),
+    )
+    before = vault_files(vault)
+
+    output = run_skill(vault, state, hub, '/dory:library "what uv sync does with the lock file"')
+
+    assert vault_files(vault) == before
+    assert "Package management" in output["result"] and "xtend" in output["result"], output[
+        "result"
+    ]

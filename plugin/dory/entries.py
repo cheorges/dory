@@ -9,7 +9,7 @@ the pair as one change instead of a removal.
 
 import difflib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dory.frontmatter import strip_frontmatter
 
@@ -33,6 +33,7 @@ class Change:
     change: str  # "added", "changed" or "removed"
     lead: str
     was: str = ""  # the old lead, when a corrected entry got a new one
+    before: str = field(default="", compare=False)  # the old text of a changed or removed entry
 
 
 def parse(text: str) -> list[Entry]:
@@ -62,7 +63,7 @@ def diff(before: list[Entry], after: list[Entry]) -> list[Change]:
     old = {entry.key: entry for entry in before}
     new = {entry.key: entry for entry in after}
     changes = [
-        Change("changed", entry.lead)
+        Change("changed", entry.lead, before=old[entry.key].text)
         for entry in after
         if entry.key in old
         and (entry.text, entry.section) != (old[entry.key].text, old[entry.key].section)
@@ -71,14 +72,16 @@ def diff(before: list[Entry], after: list[Entry]) -> list[Change]:
     fresh = [entry for entry in after if entry.key not in old]
     paired_gone, paired_fresh = _pair_similar(gone, fresh)
     changes += [
-        Change("changed", fresh[j].lead, was=gone[i].lead)
+        Change("changed", fresh[j].lead, was=gone[i].lead, before=gone[i].text)
         for i, j in zip(paired_gone, paired_fresh, strict=True)
     ]
     changes += [
         Change("added", entry.lead) for j, entry in enumerate(fresh) if j not in paired_fresh
     ]
     changes += [
-        Change("removed", entry.lead) for i, entry in enumerate(gone) if i not in paired_gone
+        Change("removed", entry.lead, before=entry.text)
+        for i, entry in enumerate(gone)
+        if i not in paired_gone
     ]
     return changes
 
@@ -88,6 +91,11 @@ def _entry(content: str, section: str) -> Entry:
     bold = _BOLD_LEAD.match(text)
     lead = bold.group(1).strip() if bold else " ".join(text.split())[:_UNLED_LEAD_CHARS]
     return Entry(key=_normalize(lead), lead=lead, section=section, text=content)
+
+
+def key(lead: str) -> str:
+    """The key an entry with this lead gets (without the numbering of duplicate leads)."""
+    return _normalize(lead)
 
 
 def _normalize(text: str) -> str:

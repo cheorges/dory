@@ -1,8 +1,11 @@
 """Queue entries: one JSON file per ended (or saved) session."""
 
+import contextlib
 import json
+import os
 import shutil
 import subprocess
+import time
 from dataclasses import asdict, dataclass, fields
 from datetime import UTC, datetime
 from pathlib import Path
@@ -59,6 +62,22 @@ def _capture_docs(state: StateDir, entry: Entry) -> None:
         repodocs.discard(state, entry.id)
 
 
+def discard_transcript(state: StateDir, entry_id: str) -> None:
+    """Remove an entry's transcript copy; a parked entry keeps it for `dory retry`."""
+    (state.transcripts / f"{entry_id}.jsonl").unlink(missing_ok=True)
+
+
+def sweep(state: StateDir) -> None:
+    """Remove transcript copies whose entry is neither queued nor parked (kill, crash)."""
+    entries = (path for folder in (state.queue, state.failed) for path in folder.glob("*.json"))
+    kept = {path.stem for path in entries}
+    cutoff = time.time() - repodocs.SWEEP_GRACE_SECONDS
+    for copy in state.transcripts.glob("*.jsonl"):
+        with contextlib.suppress(FileNotFoundError):  # its run removed it meanwhile
+            if copy.stem not in kept and copy.stat().st_mtime < cutoff:
+                copy.unlink()
+
+
 def pending(state: StateDir) -> list[Path]:
     return sorted(state.queue.glob("*.json"))
 
@@ -86,4 +105,5 @@ def _clone(source: Path, target: Path) -> None:
     result = subprocess.run(["cp", "-c", str(source), str(tmp)], capture_output=True)
     if result.returncode != 0:
         shutil.copyfile(source, tmp)
+    os.utime(tmp)  # a clone keeps the source's mtime; the sweep's grace counts from the copy
     tmp.replace(target)

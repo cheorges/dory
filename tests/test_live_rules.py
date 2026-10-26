@@ -361,7 +361,7 @@ def test_extending_rewrites_the_entry_to_the_current_state(world):
 # What the repository and the user already say.
 
 
-def test_what_claude_md_already_says_is_not_repeated(world):
+def test_a_pitfall_the_claude_md_states_becomes_an_entry_anyway(world):
     (world.hub / "CLAUDE.md").write_text(
         "# ai-assistant-hub\n\n## Gotchas\n\n"
         "- The KoliChat healthcheck takes 90 s; deploy-compose.sh therefore waits with "
@@ -382,24 +382,25 @@ def test_what_claude_md_already_says_is_not_repeated(world):
     )
 
     assert world.entries_about("swap"), "the new insight must become an entry"
-    assert not world.entries_about("healthcheck"), "already in CLAUDE.md"
+    assert world.entries_about("healthcheck"), "behaviour stays an entry, the CLAUDE.md may drop it"
 
 
-def test_claude_md_fact_beyond_the_first_8000_characters_is_not_repeated(world):
+def test_a_decision_the_claude_md_states_is_not_repeated(world):
     filler = "\n".join(f"- Convention {index}: keep this line as it is." for index in range(260))
     (world.hub / "CLAUDE.md").write_text(
         "# ai-assistant-hub\n\n## Conventions\n\n"
         + filler
-        + "\n\n## Gotchas\n\n- The Loki ruler needs `ruler.storage.local.directory` set to "
-        "/loki/rules, otherwise it refuses to start with 'no rule storage configured'.\n"
+        + "\n\n## Recent Decisions\n\n| Date | Decision | Why |\n|---|---|---|\n"
+        "| 2026-10-10 | Loki runs as a single binary on every customer VM, not as "
+        "microservices | One VM per customer; the microservice mode needs object storage |\n"
     )
-    assert (world.hub / "CLAUDE.md").read_text().index("ruler.storage") > 8_000
+    assert (world.hub / "CLAUDE.md").read_text().index("single binary") > 8_000
     world.session(
         world.hub,
         (
-            "Loki on customer-d refused to start: 'no rule storage configured'. Setting "
-            "ruler.storage.local.directory to /loki/rules fixed it.",
-            "Right, the ruler needs that directory, otherwise Loki does not start.",
+            "We talked about it again: Loki stays a single binary on every customer VM, not "
+            "microservices, because each customer has one VM and no object storage.",
+            "Agreed, single binary it stays.",
         ),
         (
             "Also: the customer-d VM clock was 4 minutes off, so Loki rejected every push "
@@ -409,26 +410,33 @@ def test_claude_md_fact_beyond_the_first_8000_characters_is_not_repeated(world):
     )
 
     assert world.entries_about("chrony"), "the new insight must become an entry"
-    assert not world.entries_about("ruler"), "already in CLAUDE.md"
+    decision = re.compile(r"single[ -]binary|monolithic|microservice", re.I)
+    assert not [e for e in world.all_entries() if decision.search(e.text)], world.dump()
 
 
-def test_entry_the_claude_md_now_states_is_removed(world):
+def test_a_decision_entry_the_claude_md_now_states_is_removed(world):
     world.knowledge_file(
         "## Pitfalls\n- **Loki's retention compactor crashes unless the volume has the folder "
         "/loki/compactor.** The compactor does not create its working folder. Create it on "
-        "every new VM before Loki starts.\n"
+        "every new VM before Loki starts.\n\n"
+        "## Decisions\n- **Grafana dashboards are provisioned from files, not edited in the "
+        "UI.** The dashboards are versioned with the repository.\n"
     )
     (world.hub / "CLAUDE.md").write_text(
-        "# ai-assistant-hub\n\n## Gotchas\n\n- Loki: the retention compactor needs the folder "
-        "`/loki/compactor` on the volume, otherwise Loki restarts in a loop. "
-        "deploy-loki.sh creates it.\n"
+        "# ai-assistant-hub\n\n## Recent Decisions\n\n| Date | Decision | Why |\n"
+        "|---|---|---|\n| 2026-10-12 | Grafana dashboards are provisioned from files in "
+        "`grafana/dashboards/`, never edited in the UI | One source of truth in the "
+        "repository |\n\n"
+        "## Gotchas\n\n- Loki: the retention compactor needs the folder `/loki/compactor` on "
+        "the volume, otherwise Loki restarts in a loop. deploy-loki.sh creates it.\n"
     )
     world.session(
         world.hub,
         (
             "Loki restarted in a loop on customer-f again: /loki/compactor was missing because "
-            "the VM was set up by hand. deploy-loki.sh creates it, so I reran the script.",
-            "Right, the compactor needs /loki/compactor and deploy-loki.sh creates it.",
+            "the VM was set up by hand. deploy-loki.sh creates it, so I reran the script. And "
+            "I moved the cost dashboard into grafana/dashboards/ as a file.",
+            "Right, the compactor needs /loki/compactor, and dashboards live as files.",
         ),
         (
             "Also: Grafana on customer-f showed no logs because its Loki data source pointed to "
@@ -439,14 +447,145 @@ def test_entry_the_claude_md_now_states_is_removed(world):
     )
 
     assert world.entries_about("http://loki:3100"), "the new insight must become an entry"
-    assert not world.entries_about("compactor"), world.knowledge_text()
-    assert [c for c in world.changes("removed") if "compactor" in c["lead"].lower()], (
-        world.last_run()
-    )
+    assert world.entries_about("compactor"), "a pitfall stays although the CLAUDE.md states it"
+    assert not world.entries_about("provisioned"), world.knowledge_text()
+    assert [c for c in world.changes("removed") if "grafana" in c["lead"].lower()], world.last_run()
     assert "(removed" in section(world.session_note(), "Insights"), world.session_note()
 
 
-def test_feature_detail_from_a_record_gets_no_entry(world):
+def test_a_working_rule_the_user_decides_becomes_a_preference(world):
+    (world.hub / "CLAUDE.md").write_text(
+        "# ai-assistant-hub\n\n## Recent Decisions\n\n| Date | Decision | Why |\n|---|---|---|\n"
+        "| 2026-10-10 | Loki runs as a single binary on every customer VM | One VM per "
+        "customer |\n\n## Files\n\n- `docs/known-issues.md`: known issues of the knowledge "
+        "base\n"
+    )
+    world.session(
+        world.hub,
+        (
+            "The comparison service returned a wrong unit for the third document. Add it to "
+            "docs/known-issues.md.",
+            "Before I add it: known-issues.md so far lists errors of the knowledge base. This "
+            "one comes from the comparison service.",
+        ),
+        (
+            "Then no. From now on known-issues.md holds only errors that are already in the "
+            "knowledge base's transcript. Errors from the comparison service are fixed in the "
+            "service, not listed there.",
+            "Understood, the user decided: known-issues.md lists only errors already in the "
+            "knowledge base's transcript; the unit error gets fixed in the comparison service.",
+        ),
+    )
+
+    knowledge = world.knowledge_text()
+    assert "known-issues" in section(knowledge, "Preferences"), world.dump()
+    assert "known-issues" not in section(knowledge, "Decisions"), world.dump()
+
+
+def test_a_system_decision_no_claude_md_states_becomes_a_decision(world):
+    (world.hub / "CLAUDE.md").write_text(
+        "# ai-assistant-hub\n\n## Recent Decisions\n\n| Date | Decision | Why |\n|---|---|---|\n"
+        "| 2026-10-10 | Loki runs as a single binary on every customer VM | One VM per "
+        "customer |\n"
+    )
+    world.session(
+        world.hub,
+        (
+            "Promtail is deprecated. Which agent should ship the container logs to Loki now?",
+            "Grafana Alloy replaces Promtail and reads the Docker logs the same way; Vector "
+            "would work too but needs its own config format.",
+        ),
+        (
+            "We decided: Alloy instead of Vector on every customer VM, because Grafana "
+            "supports it and the Loki pipeline stays in one stack.",
+            "Agreed, Alloy instead of Vector on every customer VM.",
+        ),
+    )
+
+    found = world.entries_about("alloy")
+    assert found and all(entry.section == "Decisions" for entry in found), world.dump()
+
+
+def test_a_preference_stated_in_passing_lands_in_a_topic_file(world):
+    world.session(
+        world.hub,
+        (
+            "Write the README section on the deploy steps.",
+            "Done. I added a Mermaid diagram of the five steps and a short list below it.",
+        ),
+        (
+            "Drop the diagram. In general, in every project and every document: I want Mermaid "
+            "diagrams only when a flow really needs one; five steps read better as a list.",
+            "Removed the diagram, the list stays.",
+        ),
+    )
+
+    entries = world.entries_about("mermaid", "notes")
+    assert entries, world.dump()
+    assert not world.entries_about("mermaid", f"projects/{HUB}"), world.dump()
+    topic = next(p for p in world.topic_files() if "mermaid" in p.read_text().lower())
+    assert "mermaid" in section(topic.read_text(), "Preferences").lower(), topic.read_text()
+
+
+def test_a_throttling_that_changed_the_work_becomes_a_pitfall(world):
+    world.session(
+        world.hub,
+        (
+            "Run the quality tests for the comparison service on the six documents, in parallel.",
+            "Started 6 parallel runs over Azure AI Foundry. Two answers broke off midway and "
+            "Foundry returned 429 Too Many Requests; one job failed.",
+        ),
+        (
+            "Then run them through the separate Anthropic test workspace instead of Foundry.",
+            "Done: all six runs went through the Anthropic workspace without a break-off. "
+            "Results: 1,405 values checked, 5 wrong.",
+        ),
+    )
+
+    entries = world.entries_about("foundry")
+    assert entries, world.dump()
+    knowledge = world.knowledge_text()
+    assert "foundry" in section(knowledge, "Pitfalls").lower(), knowledge
+
+
+def test_a_session_that_explains_a_script_adds_no_entry(world):
+    world.session(
+        world.hub,
+        (
+            "What exactly does scripts/compose-deploy.sh do?",
+            "It has four commands. `check` compares the compose file on the box with the "
+            "repository and prints a plan per service; `status` lists the containers; "
+            "`deploy` copies the file and runs `docker-compose up -d`; `rollback` restores the "
+            "previous file from the backup it keeps next to it.",
+        ),
+        ("And where does it keep that backup?", "Next to the file, as docker-compose.yaml.bak."),
+        ("Thanks, that is all I wanted to know.", "You are welcome."),
+    )
+
+    assert world.all_entries() == [], world.dump()
+
+
+def test_home_infrastructure_that_is_the_project_goes_into_its_knowledge(world, tmp_path):
+    box = world._repo(tmp_path / "code" / "box-home")
+    world.session(
+        box,
+        (
+            "Deploy the compose file to my Synology NAS at home.",
+            "Deployed. Watchtower had updated anella and f1 since the last deploy, so "
+            "docker-compose 1.28.5 recreated both although the compose file was unchanged: "
+            "it hashes the image ID into the config. Both were gone for about 20 seconds.",
+        ),
+        (
+            "Good to know. On this box, before every deploy, tell me which services restart.",
+            "Will do: `compose-deploy.sh check` shows them as recreate.",
+        ),
+    )
+
+    assert world.entries_about("watchtower", "projects/box-home"), world.dump()
+    assert world.topic_files() == [], world.dump()
+
+
+def test_a_records_feature_design_stays_out_and_the_vault_names_no_record(world):
     world.record(
         "044-budget-conversion.md",
         "# 044: Budget conversion\n\n## Decision\n\nThe monthly customer budget is entered in "
@@ -473,11 +612,13 @@ def test_feature_detail_from_a_record_gets_no_entry(world):
     )
 
     assert world.entries_about("forwarder"), "the new insight must become an entry"
-    assert not world.entries_about("budget"), "a detail of the record's own feature"
-    assert not world.entries_about("snb"), "a detail of the record's own feature"
+    # A behaviour entry about the budget may stand; the record and its stored field may not.
+    for entry in world.all_entries():
+        assert not re.search(r"044|budget-conversion|\brecord\b", entry.text, re.I), entry.text
+        assert "budget_usd" not in entry.text, entry.text
 
 
-def test_platform_gotcha_from_a_record_becomes_a_pointer_entry(world):
+def test_platform_gotcha_from_a_record_becomes_a_self_contained_entry(world):
     world.record(
         "043-image-studio.md",
         "# 043: Image studio\n\n## Solution\n\nThe image studio renders product images in "
@@ -502,9 +643,12 @@ def test_platform_gotcha_from_a_record_becomes_a_pointer_entry(world):
         ),
     )
 
-    pointers = world.entries_about("043-image-studio")
-    assert pointers, world.dump()
-    assert all(sentences(after_lead(entry)) <= 3 for entry in pointers), pointers
+    entries = world.entries_about("startup probe")
+    assert entries, world.dump()
+    for entry in entries:
+        assert "liveness" in entry.text.lower(), entry.text  # the substance, not a pointer
+        assert not re.search(r"043|image-studio|\brecord\b", entry.text, re.I), entry.text
+        assert sentences(after_lead(entry)) <= 3, entry.text
 
 
 def test_a_users_note_is_never_changed_or_repeated(world):
@@ -603,6 +747,101 @@ def test_an_insight_on_an_existing_topic_extends_its_file(world):
     assert world.topic_files() == [topic], world.dump()
     assert [e for e in parse(topic.read_text()) if "100" in e.text], topic.read_text()
     assert "Overwriting a Notion page" in topic.read_text()
+
+
+def test_an_insight_in_other_words_extends_the_matching_topic_entry(world):
+    topic = world.note(
+        "notes/GitHub.md",
+        "---\ntype: topic\nupdated: 2026-10-01\n---\n## Pitfalls\n"
+        "- **Pushing files under `.github/workflows/` needs the `workflow` scope in the gh "
+        "token.** Git takes its HTTPS password from gh. Refresh the token with "
+        "`gh auth refresh -s workflow`.\n",
+    )
+    world.session(
+        world.hub,
+        (
+            "git push failed: 'refusing to allow an OAuth App to create or update workflow "
+            "ci.yml without workflow scope'.",
+            "The token lacks the workflow scope. Pushing over SSH instead worked: "
+            "git push git@github.com:org/hub.git main. SSH knows no scopes.",
+        ),
+        ("Good, SSH is the quicker way out next time, in any repository.", "Noted."),
+    )
+
+    entries = [e for e in parse(topic.read_text()) if "workflow" in e.text.lower()]
+    assert len(entries) == 1, topic.read_text()
+    assert "ssh" in entries[0].text.lower(), topic.read_text()
+    assert world.topic_files() == [topic], world.dump()
+    assert not world.entries_about("workflow", f"projects/{HUB}"), world.dump()
+
+
+def test_what_another_project_holds_lands_once_where_this_project_loads_it(world, tmp_path):
+    box = world._repo(tmp_path / "code" / "box")
+    world.note(
+        "projects/box/knowledge.md",
+        f'---\ntype: knowledge\ndomain: work\npaths: ["{box}"]\nupdated: 2026-10-01\n---\n'
+        "## Pitfalls\n- **docker-compose 1.28.5 recreates containers Watchtower updated, even "
+        "with an unchanged compose file.** It hashes the image ID into the config. Name the "
+        "services that restart before every deploy.\n",
+    )
+    world.session(
+        world.hub,
+        (
+            "The hub deploy recreated the grafana container although nothing changed in the "
+            "compose file. Watchtower had pulled a new image overnight.",
+            "Right: docker-compose 1.28.5 hashes the image ID into the config, so a container "
+            "Watchtower updated is recreated on the next up -d.",
+        ),
+        (
+            "Also: the hub's Redis needs maxmemory-policy allkeys-lru, otherwise KoliChat "
+            "sessions fail once the memory is full.",
+            "Confirmed for the hub: Redis needs maxmemory-policy allkeys-lru.",
+        ),
+    )
+
+    assert world.entries_about("allkeys-lru", f"projects/{HUB}"), world.dump()
+    in_topic = world.entries_about("watchtower", "notes")
+    in_hub = world.entries_about("watchtower", f"projects/{HUB}")
+    assert in_topic or in_hub, world.dump()  # it reaches the hub's sessions
+    assert not (in_topic and in_hub), world.dump()  # in one place
+    box_text = (world.vault / "projects" / "box" / "knowledge.md").read_text()
+    assert box_text.count("Watchtower") == 1, box_text  # another project's file is not touched
+    if in_topic:
+        assert "box" in section(world.session_note(), "Open").lower(), world.session_note()
+
+
+def test_an_entry_changed_after_the_session_is_not_rewritten_by_it(world):
+    from datetime import UTC, datetime, timedelta
+
+    from dory import staleness
+
+    world.knowledge_file(
+        "## Facts\n- **Loki runs on port 3200 on every customer VM.** Grafana took 3100.\n"
+    )
+    staleness.record(
+        world.state,
+        [
+            {
+                "change": "added",
+                "file": f"projects/{HUB}/knowledge.md",
+                "lead": "Loki runs on port 3200 on every customer VM.",
+            }
+        ],
+        "a-later-session",
+        datetime.now(UTC) + timedelta(hours=1),
+    )
+    world.session(
+        world.hub,
+        (
+            "Loki on customer-g listens on port 3100, as on every customer VM.",
+            "Yes, Loki is on port 3100 there.",
+        ),
+    )
+
+    text = world.knowledge_text()
+    assert "3200" in text, text
+    assert not [e for e in world.entries() if "3100" in e.lead], text
+    assert "3100" in section(world.session_note(), "Open"), world.session_note()
 
 
 def test_a_library_entry_never_reaches_a_topic_file(world):

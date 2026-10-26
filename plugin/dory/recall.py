@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from dory import context, queue, scopes, spawn, summary
+from dory import context, queue, scopes, spawn, staleness, summary
 from dory.config import Config
 from dory.frontmatter import read_frontmatter
 from dory.project import Project, lookup_project
@@ -95,6 +95,9 @@ def recall(hook: dict, config: Config) -> str:
     if not texts and not listing and not any(_render(section) for section in lead):
         return ""
     head = _Section("", [HEADER, f"Vault: {vault}"])
+    raw_text = context.text(texts)  # the summary is made of the unmarked files, as the worker sees
+    for path, content in texts.items():  # a repository path that is gone is a fact worth a marker
+        texts[path] = staleness.mark_missing(content, staleness.project_root(vault, path))
     files_text = context.text(texts)
     front = [_render(head), *map(_render, lead)]
     seen = set(texts)
@@ -111,8 +114,8 @@ def recall(hook: dict, config: Config) -> str:
     paths: list[_Section] = []
     within = "\n\n".join(block for block in [*front, files_text] if block)
     if len(within) > _Budget(limit - _reserve(listing)).left:  # the files themselves do not fit
-        if summary.needs_summary(files_text, config):
-            files = _summary_or_files(state, ctx, files_text, config, files)
+        if summary.needs_summary(raw_text, config):
+            files = _summary_or_files(state, ctx, raw_text, config, files)
         paths = [_Section(PATHS_TITLE, [f"- {path.as_posix()}" for path in texts])]
     # A summary stands for every file it was made of, the library entries they link included.
     summarized = set(texts) if files and files[0].path is None else set()

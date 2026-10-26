@@ -785,3 +785,181 @@ All three verdicts `correct`; the security auditor found every way into a work p
 **Checked.** 293 unit tests and ruff; `claude plugin validate plugin`; end to end in an isolated `CLAUDE_CONFIG_DIR`: the plugin installed from the repo, five values set with `claude plugin configure`, read back by `load_config`; an invalid model refused by Claude Code.
 
 **0.9.0 (2026-10-22).** The note language became a choice list of 16 languages, English by default, and the list ends with `Other (config.toml)`, which `config.plugin_options` treats as not set, so `language` in config.toml decides. Checked: 294 unit tests; the two new config tests fail on the code before.
+
+## Record 008: capture knowledge reliably (2026-10-23)
+
+### T: transcript copies deleted after processing
+
+**User story.** As a user, I want the transcript copies dory keeps under `~/.local/state/dory-brain/transcripts/` deleted once a session is processed, so that what a session showed, secrets included, does not stay on disk forever. Found in the vault review of 2026-10-23: 12 copies, three holding a real Anthropic key.
+
+**Implementation.** `queue.discard_transcript` removes an entry's copy; `worker._handle` calls it when the entry left the queue and is not parked in `failed/`. `queue.sweep` runs at the start of every pass next to the other sweeps and removes copies whose entry is neither queued nor parked, after the grace period of `repodocs.SWEEP_GRACE_SECONDS`; it also clears the copies older versions left behind. `_clone` gives the copy a fresh mtime.
+
+**Decisions and reasoning.** Parked entries keep their copy, against the first acceptance criterion: `dory retry` moves them back into the queue and needs the transcript. The condensed transcript in the entry's bundle under `work/` stays; Story 2 replays it.
+
+**Checked.** 299 unit tests (5 new: processed, skipped, waiting for retry, sweep, clone of an old transcript), ruff check and format.
+
+**Review findings (architect and code reviewer, both `correct`).** One, found by both: `cp -c` keeps the source's mtime, so a copy of a transcript idle for over 10 minutes looked old at once, and a sweep in another worker could delete it between the clone and the entry being written. Fixed with `os.utime` in `_clone`, with a test that fails on the code before.
+
+### S1: rules that capture behaviour and preferences
+
+**User story.** Record 008, Story 1: the worker writes important behaviour, limits and the user's preferences into the knowledge and topic files, even when the CLAUDE.md states them, so that a later session gets them although the CLAUDE.md drops them or never had them.
+
+**Implementation.** `plugin/skills/rules/SKILL.md`: the test asks about this repository or the user in any later session; the bold "Most sessions add nothing" gives way to three examples of knowledge that looks like a step of the session (a limit that changed the work, a preference stated in passing, how a system outside the repository's code behaves); "What the repository already documents" follows decisions 2 and 4: behaviour stays an entry, decisions and code descriptions do not, only decision entries are removed, records follow the same line, and the vault stands on its own without references to records or other documents; home infrastructure that is the project itself goes into its `knowledge.md`. Ingest step 5 aligned.
+
+**Decisions and reasoning.** Record 008, decisions 1 to 4. Decision 4 (no record pointers, the substance in the entry) came from the user at the review halt, after the record bullet made a check flip in 2 of 5 runs; it replaces Record 002's pointer entries. Decision 5 (trace and stale signal) was added at the same halt as Stories 5 and 6.
+
+**Checked.** Full proof green (299). Live rules suite with haiku: 30 of 30 after decision 4, the eight key checks once more 8 of 8. Against the old rules, 3 of the 7 new or changed checks failed (CLAUDE.md pitfall, decision entry removal, home infrastructure); the other four already passed.
+
+**Review findings (architect and code reviewer, both `correct`).** Five, all worked in: the decision-removal fixture held behaviour the new rule may keep (now a pure decision); the decision check matched one phrase (now a regex); "behaviour" was readable as what a script does (now limited to systems and processes outside the repository's code); the throttling example names the project's `knowledge.md`; records follow the CLAUDE.md line. The decision 4 change itself had no separate agent review.
+
+### S4: a catalog of every entry in the bundle
+
+**User story.** Record 008, Story 4: the worker checks each insight against every entry already in the vault, so the wider test of Story 1 extends existing entries instead of adding duplicates, also across projects.
+
+**Implementation.** `catalog.py` builds `catalog.md` for the bundle directory: the lead of every entry of every project's `knowledge.md` and of the topic files in `notes/`, with its section, grouped by file, the session's own file first, leads cut at 100 characters. It leaves out `library/`, the user's project notes, lists and registers, every other project in a private session and every private project in other sessions; an unreadable file is skipped. `ingest._process_entry` writes it, `task.md` names it, ingest step 5 checks against it. The rules gain "What another project's file already states" and "when unsure whether an insight matches an entry, treat it as a new subject".
+
+**Decisions and reasoning.** An insight another project's file states goes into this project's file when it concerns this project's own setup, or into a topic file when it holds for any project using the tool, with the other project's entry under `## Open`: each session loads only its own project's file, so "no second entry" would have hidden it. The rule that a file updated after the session's date is not rewritten was dropped, because `updated` changes with every dory write; ordering waits for the per-entry dates of Story 6. 100 entries take about 12,000 characters, not the 4,000 first estimated.
+
+**Checked.** 307 unit tests (8 new), ruff. Live rules suite 32 of 32 with the final state. Control: with an empty catalog the cross-project check failed 2 of 2.
+
+**Review findings (architect and code reviewer, both `correct`).** Six, all worked in: unreadable files skipped; the catalog line of a private session names only the project's file; the cross-project rule moved from the task into the rules and changed as above; the date rule dropped and `updated` removed from the catalog; the cross-project live check asserts one place, the other project untouched and the Open note.
+
+### S5: a trace of every changed or removed entry
+
+**User story.** Record 008, Story 5: the previous text of every entry a run changed or removed stays in that run's session note, so the user can see what an entry said before and restore it, without the session start loading it.
+
+**Implementation.** `entries.Change` carries the previous text (`before`, not compared). `baseline.replaced` returns file, change and previous text for the project's `knowledge.md` and the topic files. `trace.py` renders `## Replaced` with one folded `> [!quote]-` callout per entry, titled with a wikilink to the file, and appends it to the session note, replacing a section an earlier check wrote. `ingest._process_entry` computes it after `baseline.check`, marks the baseline checked, then writes the trace for a DONE run; an attempt that did not finish holds its trace under `traces/` in the state directory for the attempt that does. `worker` discards held traces with the entry and sweeps orphans.
+
+**Decisions and reasoning.** Record 008, decision 5: the trace lives in the session note, not in a history file, and dory's code writes it, not the worker, so it holds for every run and costs nothing at session start.
+
+**Checked.** 317 unit tests (10 new), ruff. The ingest trace test fails without the call. No live checks: neither the rules nor the worker changed.
+
+**Review findings (architect and code reviewer, both `correct`).** Four, all worked in: an unguarded trace write could turn a finished run into a paid retry (both reviewers; now after `mark_checked` and guarded); a failed attempt's rewrites were missing from the retry's trace (now held in `traces/`); an unclosed bold lead broke the callout title; tests for paragraphs inside an entry and a section after the trace.
+
+### S6: a signal for stale entries
+
+**User story.** Record 008, Story 6: entries are flagged whose named path is gone, that nobody touched for long, or that changed after the session being processed, so a session checks them before relying on them and the worker corrects them when a session touches their subject.
+
+**Implementation.** `staleness.py` keeps per entry of the knowledge and topic files when it was added and last changed, by which queue entry, and a hash of its text (`entries.json` in the state directory). `record` dates what the checks report a run added or changed; `observe` syncs with the files before and after every run: a new entry in a known file counts from now, an edit under the same lead (hash) counts as a change by the user, a file seen for the first time gives its entries no change date. `flags` computes `missing path` (a backticked path with `/` whose first part exists in the project's repository, missing when git does not list it and it is not on disk), `unchanged since <date>` (90 days) and `changed after this session` (another entry or the user changed it after the session ended). The catalog shows the flags, the rules say what they mean (a newer entry is not rewritten by a contradicting insight; a flag alone changes nothing), `dory status` counts two, recall marks missing paths on the unmarked text's copy, so the summary decision stays the worker's. Git failures or a 5 s timeout mean no markers.
+
+**Decisions and reasoning.** Record 008, decision 5. The ordering rule dropped in S4 returns as the flag `changed after this session`, now per entry and with a run's own changes exempt. Path candidates are narrower than the story (bare file names and paths elsewhere gave false flags). Duplicate leads share a key in `record` (a P3 left open; the rules discourage duplicate leads).
+
+**Checked.** 334 unit tests (21 new), ruff. Live rules suite 33 of 33 with the final code, the ordering check included. Dry run on the real vault with a temporary state: no flags.
+
+**Review findings (architect `correct`, code reviewer `incorrect` with one P1).** Eight, seven worked in: first sightings stamped now flagged the whole vault as newer than the backlog (P1, both reviewers); the marker changed the summary digest; edits under the same lead went unseen; ignored folders counted as missing; the marker could land on the wrong line; a git failure could cost the whole session start. Left: duplicate-lead keys.
+
+### S2: comparison run against the real sessions
+
+**User story.** Record 008, Story 2: the sessions of 2026-10-22 and 2026-10-23 replayed with the old and the new rules, to see what the new rules add before they reach the real vault.
+
+**Implementation.** `spike/replay.py` exports `main` with `git archive`, then for each version enqueues the transcript copies of the seven reviewed sessions into a fresh state directory and drains the queue with that version's worker into a fresh vault; it prints the leads side by side per file (`--compare` again later, `--dry-run` lists the sessions). It refuses an output folder that already holds a run.
+
+**Decisions and reasoning.** Transcript copies instead of bundles: the bundles no longer hold repository documents, and a replay through `enqueue` builds bundle, catalog and checks exactly as each version does. The configured model (opus) for both, as in daily use.
+
+**Checked.** `main` 11 entries for 3.54 USD, branch 25 for 3.87 USD (API equivalent on the subscription); details and the judgement by vir's rubric in Record 008 under Story 2. The real vault and state were only read.
+
+**Review findings (code reviewer, `correct`).** One P3, worked in: a reused output folder would have mixed two runs. Every write path lies under the output folder.
+
+**Found.** The branch dropped the user's rule on `known-issues.md`, written in the session as "the user decided", although no CLAUDE.md states it: a working rule the user sets was taken for a decision. A correction of the rules follows before the release (step S1b).
+
+### S1b: a rule the user sets is a preference
+
+**User story.** As a user who sets working rules in a session (where something goes, what a file may hold), I want them kept as preferences, so that a session phrasing them as "the user decided" does not drop them as decisions the CLAUDE.md is responsible for.
+
+**Implementation.** `plugin/skills/rules/SKILL.md`: the `## Decisions` row covers decisions about the system (architecture, tools, design); a working rule the user sets is a preference, also when the session calls it a decision, and goes under `## Preferences` in the project's `knowledge.md` (without a project, the existing rule for folders and undertakings holds); it stays out only when the CLAUDE.md states the rule itself, not when it only names the file; a system decision no CLAUDE.md or record states goes under `## Decisions`; an existing preference entry stays when the CLAUDE.md later states the rule, as behaviour entries do.
+
+**Checked.** New live check with the `known-issues.md` case of the comparison run: 1 of 2 on the old rules (the entry landed outside `## Preferences`), 3 of 3 on the new ones. A second new check, a tool decision no CLAUDE.md states, stays under `## Decisions`: 3 of 3. Whole live rules suite 34 of 34 after the first change, 35 of 35 after the review fixes (haiku). Full proof 334 tests.
+
+**Review findings (architect and code reviewer, both `correct`, four findings worked in).** P2: the new bullet named no file and could send a folder rule from a session without a project into a topic file, against "Where an insight goes" (scoped to the project's file). P3: nothing said what happens to an existing preference entry once the CLAUDE.md states the rule (it stays). P2: the check passed when the rule landed under both sections (now asserts nothing under `## Decisions`). P2: no check showed that a new system decision still reaches `## Decisions` after the narrower wording (new check).
+
+### S3: release 0.11.0 prepared
+
+**User story.** Record 008, Story 3: the new rules released with a guide that says what the worker writes.
+
+**Implementation.** Version 0.11.0 in `pyproject.toml`, `plugin/.claude-plugin/plugin.json`, `plugin/dory/__init__.py` and `uv.lock`. CHANGELOG 0.11.0 with the `Unreleased` entry on transcript copies folded in. Guide: what the worker writes (the wider test, working rules, no pointers to records, the catalog, behaviour from the CLAUDE.md, home infrastructure as a project, `## Replaced`), a paragraph on stale entries, the `dory status` line. CLAUDE.md: status, next step, three recent decisions, architecture line. Record 008 and Story 3 In Progress until the merge and tag.
+
+**Checked.** Full proof 334 tests, ruff. No live checks: no rule or code changed.
+
+**Review findings (architect and code reviewer, both `correct`).** P2 (architect): the next step said to merge the 0.10.0 pull request, which GitHub shows merged on 2026-10-23 (`3a82984`); what is missing is the tag `v0.10.0` (checked with `gh pr view 6` and `git ls-remote`, fixed). P3 (both): Record 008 and Story 3 said Done with the merge criterion open, and the CLAUDE.md cell used a value outside the legend (now In Progress). The code reviewer checked every CHANGELOG and guide claim against the code (90 days, `entries.json`, the status and start marker texts, what is deleted and kept) and found them true.
+
+## Record 009: Better proposals in /dory:library
+
+### L1: no silent replacement, aliases and source
+
+**User story.** Record 009, Story 1: an existing library entry is replaced only when the dialog read it and chose to extend it, and an entry carries aliases and its source.
+
+**Implementation.** `library.library_write` refuses an existing entry unless `expect` is the sha256 of the file as it stands; a stale hash fails and names the current one; a hash for a new entry fails. Both checks run under `notes_lock` with the write. `aliases` and `source` become quoted properties after `type`, `created` and `updated`; on a replace, the ones not given are kept, as tags are. A value is one line, not blank, without quote, `$`, backtick or backslash (a backslash would be an escape in a quoted YAML value, which dory's reader does not decode). CLI: `--replace` and `--expect` only together, `--alias` repeatable, `--source`. Skill step 5: the refusal names the hash; the skill retries with `--replace --expect` only when the user chose Extend for that entry or the request names it, reads it again with Read first, and keeps what the entry held; a title typed in the dialog that happens to exist leads to a question.
+
+**Decisions and reasoning.** The hash comes from the refusal for now, since the skill cannot compute one; Story 2 adds each entry's hash to `library-context`, so that it is the hash of the entry as read (review finding). A typed existing title in a request that names it is an extend, not a refusal: the live check showed the model extending and keeping the old text, which loses nothing.
+
+**Checked.** 345 unit tests (10 new), ruff. Live (haiku): the extend check and the check that an existing entry never loses its text, 9 of 10 runs both green (one red run not reproduced in 4 more); the first library check green. `test_library_asks_before_it_writes` fails about 1 run in 3 also on 0.10.0's skill: a `grep` on the vault, outside the session's working directory, is refused in a headless run; a first guess (`\|` in the pattern) was wrong and reverted. Added to Story 5, which replaces the grep.
+
+**Review findings (architect and code reviewer, both `correct`, three worked in).** P2, found by both: the hash from the refusal is current at refusal time, so an edit the user saved in Obsidian during the dialog would pass the check when the skill wrote from its earlier read (the skill now reads again after the refusal; the hash at read time is a Story 2 criterion). P3: the refusal offered the replace command also for a typed title (now neutral). P3: a backslash in an alias or source broke the quoted YAML (now refused).
+
+### L2: the whole vault in the library context
+
+**User story.** Record 009, Story 2: `library-context` lists every project's notes with what each file is about, so the dialog can propose any file that should link the entry.
+
+**Implementation.** `library.library_context` lists the library entries with aliases and sha256 (or `unreadable`), then the notes of every project `scopes.visible_projects` allows (the session's own first and complete, others at most 25 each), then the topic files. Each file line has its `description` or first heading outside code (`describe.about`), at most five aliases, tags and linked entries. Other projects stop at 20,000 characters; the projects past that are one count line. `scopes.visible_projects` is the privacy rule of the worker's catalog, now in one place: `catalog._files` uses it too. `links.without_fenced_code` is public for `describe`. Skill: step 1 describes the output; step 5 reads the entry with Read before an extend and sends the hash from step 1.
+
+**Decisions and reasoning.** The hash from the context, together with a Read before the write, makes `--expect` mean "as read": the context's hash catches an edit between the context and the Read, the Read makes sure the model saw what it replaces. A new module `describe.py` holds what a file is about, so that `library-candidates` (Story 4) uses the same lines.
+
+**Checked.** 352 unit tests (7 new), ruff. Live (haiku): the four library checks 3 of 3 runs, 12 of 12; the bundle checks 2 of 2. The 20,000-character criterion is checked on a synthetic vault of 600 notes; the fixture of Story 3 checks it again.
+
+**Review findings (code reviewer and architect, both `correct`, six worked in).** P2 (architect): step 5 sent the context's hash without reading the entry, so an entry the model never opened could be replaced (Read restored). P2 (code reviewer), P3 (architect): one unreadable note or entry failed the whole context, now `unreadable` or no heading. P3, both: a comment in a code block became a note's heading. P3: the privacy rule twice (now `scopes.visible_projects`). P3: describe helpers private to `library.py` (now `describe.py`). P3: the context's size was bounded only per project (now a budget and five items per list). Found on the way and left: the snapshot that `library-context` takes first fails on an unreadable file, so the guard helps only with files that become unreadable after it (pre-existing).
+
+### L3: a test vault that measures link proposals
+
+**User story.** Record 009, Story 3: a realistic vault with requests and the links each should get, so that `library-candidates` is measured against the way the skill found links before.
+
+**Implementation.** `tests/fixtures/make_library_vault.py` writes `tests/fixtures/library-vault/` (151 files, committed): five projects with `knowledge.md` and notes (dory, ai-assistant-hub, webshop in German, box-cheorges, haushalt with `domain: private`), 33 topic files, a list and a register, 7 library entries in 6 folders; about 45 files by hand, the rest filler from templates that mention each project's common words in passing. `tests/fixtures/library-requests.json`: 10 requests with draft, three key terms, 18 expected links, 5 expected duplicates and, for one work session about taxes, the private project as a forbidden prefix. `tests/test_library_measure.py`: `Proposal` (links, duplicates), `old_way` (0.10.0's listing filtered by the key terms, title matches first), `recall` with and without the cut at 10, `duplicates_found`, `leaks`, `report`; a test that the committed vault is what the generator writes; the context on the fixture within 20,000 characters.
+
+**Checked.** 356 unit tests (4 in the new module), ruff. Old way: recall 0.72 among the first ten, 0.83 without the cut, duplicates 5 of 5 by grep over the library; it misses the cross-project links (webshop's invoices from a dory session, Grafana's data source from box-cheorges, the release note from no project) and two topic files crowded out by project notes.
+
+**Review findings (architect and code reviewer, both `correct`, seven P3 worked in).** The baseline depended on file names through the alphabetical cut (now title matches first, and the value without the cut is printed); duplicates were not measured; one unresolved link only (now four, one in a private note as a decoy); no check against drift between generator and vault; the Taxes duplicate had no signal the planned rule can match (alias added); no request checked that a work session leaves private notes out (added); the steuern hit depended on sort order (filler sentence changed). The first version's baseline was 0.82, because filler notes mentioned no project words; the measurement says little about a real vault, which decision 2 leaves to the user's vault later.
+
+### L4: candidates computed in code
+
+**User story.** Record 009, Story 4: dory finds the files that should link a new library entry, and the entries that may already cover it, each with a reason.
+
+**Implementation.** `candidates.py`: `parse_draft` (`# title`, optional `aliases:` line, content); `candidates` ranks the visible projects' notes and the topic files by an unresolved `[[X]]` with X the draft's title or alias (10), a mention of title or alias as whole words outside code and links (5), a file's own name or alias of four characters or more in the draft (4), the longest title phrase (3; a single word only when at most a tenth of the files hold it), BM25 over words of four characters or more cut to six (up to 4), and files that link a possible duplicate, in a project note's text too, or that the draft links (2); at most 20. Duplicates: library entries whose title shares at least 75 % of the draft title's words, or that share a name with it; at most 5. `render` prints both groups with load place, score, reasons and `describe.about`. `links.wiki_names` normalises link targets for both (table `\|`, `.md`, path, heading). `describe.about` skips the section headings of knowledge and topic files. CLI `dory library-candidates`.
+
+**Decisions and reasoning.** The draft's own title and aliases count at any length, as whole words: the record's "three characters or less" would have dropped the alias `uv`; the limit applies to phrases and to other files' names (record aligned). The weights order the signals as the research ranks them; on the fixture they are not tuned beyond that, and the fixture cannot tell whether they hold on a real vault (decision 2).
+
+**Checked.** 374 unit tests (17 new in `test_candidates.py`, one in the measure module), ruff. Fixture: recall 1.00 among the first ten (old way 0.72), duplicates 5 of 5, no private note in the work session about taxes, 26 ms per request. A look at the first places of three requests found overlapping phrases, function words in BM25 and section names as descriptions; all three fixed before the review.
+
+**Review findings (code reviewer and architect, both `correct`, five worked in).** P2 (architect): a common word of the title ("with", "eine") became a reason for every file holding it (single words now only when rare). P2 (code reviewer): a casefolded draft never matched a file name with ß. P3: link targets with a table `\|` or `.md` lost the strongest signal; a dotted name the draft links (`Node.js`) was cut at the dot (both through `links.wiki_names`). P3: a project note linking a duplicate in its text got no neighbour signal. Each fix has a test that fails on the code before it.
+
+### L5: the dialog uses the candidates
+
+**User story.** Record 009, Story 5: the user picks each proposed link on its own, sees why it is proposed, and is offered extending or nothing when the subject is already filed.
+
+**Implementation.** `plugin/skills/library/SKILL.md`: the draft comes first (one subject per entry, two or three aliases, a source only when the user or the session gave one), then `dory library-candidates` on it instead of grepping; `grep`, `rg` and `ls` left `allowed-tools`, and a rule up front says files are read with Read only. The summary states the rough length, the aliases, the source and, when it extends, which entry and why. Folder: `Extend <folder>/<title>` first for a duplicate, `Nothing to write` when the subject is filed. Links: a multi-select, one option per chosen file with load place and reason, each marked Recommended, `No links` added when fewer than two files are chosen. Write: `Write it`, `Show the text first`, `Shorter`. `library-write` gets `--alias` and `--source`; on an extend the entry's own aliases are passed along, since given aliases replace them. `candidates.py`: an entry whose title or alias stands in the draft's title is a possible duplicate too (found by a live run: a draft titled "uv sync and the lock file" without the alias `uv` missed "Package management"); record aligned.
+
+**Checked.** 375 unit tests, ruff. New live checks (haiku): another project's note links the entry, an entry that covers the subject is extended and keeps its alias and date, no source is invented, and the proposal names the entry to extend. The first two were red on the old skill. Five full runs of the nine library checks after all fixes: 44 of 45; the one red run (the proposal check) did not repeat in four more. `test_library_asks_before_it_writes` 5 of 5 in the runs before the last skill change and 5 of 5 in the last five.
+
+**Not checked.** The AskUserQuestion dialog itself (multi-select, options, Recommended marks, `Show the text first`) cannot run headless; the live checks see the fallback that asks in one message, or the path where the request decides everything.
+
+**Review findings (architect and code reviewer, both `correct`, six worked in).** P2 (architect): the Links question fell below AskUserQuestion's two options with fewer than two files (`No links` added). P2 (code reviewer): the extend check did not assert that the entry keeps its alias and date. P3: the decoy note was not asserted unlinked; the no-source check was case-sensitive and missed a source in the text; with a multi-select, Enter no longer took the proposal (Recommended marks per file); the dialog's shape had no check (one added for the extend proposal).
+
+### L6: release text for Record 009
+
+**User story.** Record 009, Story 6: the 0.11.0 entry and the guide describe the new dialog, so that the user knows what `/dory:library` now asks and what it refuses.
+
+**Implementation.** CHANGELOG 0.11.0: Record 009 in the intro, six bullets (link proposals computed in code with the fixture result, links one by one, extend instead of a duplicate or nothing to write, no silent replacement, aliases and source, the whole vault in the context and `Show the text first`). Guide: the `/dory:library` row, `dory library-candidates` and `--alias` in the terminal block, a paragraph in the library section on candidates and replacing. CLAUDE.md: Record 009 In Progress, the release row ready to merge, the next step (fetch, tag `v0.10.0`, push, pull request, merge commit, tag `v0.11.0`, try the dialog by hand), the Commands line, a Future row for the comparison on the user's vault, and the decision that candidates come from code. Record 009: Story 6 Done, the record In Progress until merge and tag.
+
+**Checked.** 375 unit tests, ruff. No live checks: no rule, skill or code changed.
+
+**Review findings (code reviewer and architect, both `correct`).** P3, found by both: the CHANGELOG said the context stays within 20,000 characters, while only other projects' notes stop there (fixed). Architect, outside the diff: `3a82984` is not in the local repository until `git fetch origin` (added to the next step).
+
+## Review of the whole branch before 0.11.0 (2026-10-24)
+
+**Scope.** Code, skills, tests and the replay spike from `4c2e765` to `b83a613` (36 files, about 3,400 lines; the generated fixture vault and the docs left out, the release text having been checked against the code in S3 and L6). Architect and code reviewer, both `correct`, looking at the seams between stories.
+
+**Findings.**
+- P2 (architect, confirmed on the code): `staleness.flags` exempted only the queue entry that changed an entry, so a `/dory:save` cut and the end of the same session were two authors, and the end saw the cut's entries as "changed after this session", which the rules forbid it to rewrite. Fixed: compared by session (`_session` of the entry id); test.
+- P3 (code reviewer): a worker run killed after `claude -p` had edited the vault left its edits undated, and the retry's `observe` attributed them to the user, so they too were "changed after this session". Fixed: when the entry's baseline is still unchecked (`baseline.unchecked`), `observe` attributes what it finds to that entry; test.
+- P3 (architect): `record` keys duplicate leads without their number. Left, as decided in S6: the rules forbid duplicate leads.
+- P3 (code reviewer): `spike/replay.py` reads transcript copies that 0.11.0's first worker run deletes. Noted in its docstring; the copies are not kept elsewhere, since they hold the unredacted sessions.
+
+**Checked.** 377 unit tests (2 new), ruff. Live (haiku): the ordering check and the cross-project check, 2 of 2 runs each.

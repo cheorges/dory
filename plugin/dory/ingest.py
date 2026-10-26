@@ -4,6 +4,7 @@ The run is confined with --restricted (Spike-Ergebnisse in record 001): file too
 the vault and the entry's own bundle directory, no CLAUDE.md, no user settings, no hooks.
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -14,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from pathlib import Path
 
-from dory import baseline, context, queue, scopes
+from dory import baseline, catalog, context, queue, scopes, staleness, trace
 from dory.config import Config
 from dory.project import Project, project_for_root
 from dory.secrets import redact
@@ -24,6 +25,7 @@ from dory.worker import Outcome, Process, prepare
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 MAX_TURNS = 40
+CATALOG = "catalog.md"  # in the bundle directory, next to task.md
 MAX_BUDGET_USD = 1.0
 # No hooks of the user's setup in the run; the user's project notes and library stay theirs. The
 # library entries the run may read are copies in the bundle. Patterns without a leading slash are
@@ -84,9 +86,12 @@ def session_note_path(entry: queue.Entry, project: Project | None, state: StateD
     return Path("sessions") / f"{local:%Y}" / f"{local:%m}" / name
 
 
+def _ended(entry: queue.Entry) -> datetime:
+    return datetime.strptime(entry.ended_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
+
+
 def _local_end(entry: queue.Entry) -> datetime:
-    ended = datetime.strptime(entry.ended_at, "%Y-%m-%dT%H:%M:%S.%fZ").replace(tzinfo=UTC)
-    return ended.astimezone()
+    return _ended(entry).astimezone()
 
 
 def build_command(config: Config, bundle_dir: Path) -> list[str]:
@@ -167,6 +172,16 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
         kept = baseline.baseline_dir(state, entry.id)
         files = _task_files(config.vault, project)
         _copy_library(config.vault, bundle.parent, files.library)
+        now = datetime.now(UTC)
+        # Edits since the last run count from now: the user's, or a killed attempt's of this entry.
+        killed = baseline.unchecked(kept)
+        staleness.observe(state, config.vault, now, by=entry.id if killed else "")
+        flags = staleness.flags(
+            state, config.vault, session_ended=_ended(entry), entry_id=entry.id, now=now
+        )
+        (bundle.parent / CATALOG).write_text(
+            catalog.build(config.vault, project, private=domain == "private", flags=flags)
+        )
         _write_task(
             bundle.parent,
             entry,
@@ -197,7 +212,15 @@ def make_process(config: Config, state: StateDir, runner: Runner = subprocess_ru
         changed = baseline.vault_state(config.vault) != before
         due = changed or unchecked  # a kept baseline still holds a killed run's changes
         changes = baseline.check(config.vault, kept) if due else []
+        replaced = baseline.replaced(config.vault, kept) if due else []
         baseline.mark_checked(kept)
+        staleness.record(state, changes, entry.id, datetime.now(UTC))
+        staleness.observe(state, config.vault, datetime.now(UTC))
+        if outcome is Outcome.DONE:
+            with contextlib.suppress(OSError, ValueError):  # the trace is a by-product
+                trace.append(config.vault / note, [*trace.take(state, entry.id), *replaced])
+        else:
+            trace.keep(state, entry.id, replaced)
         if outcome is Outcome.DONE:
             state.mark_seen(condensed.uuids)
         else:
@@ -335,6 +358,17 @@ def _task_file_lines(files: TaskFiles, bundle_dir: Path, *, private: bool) -> li
             + ", ".join(f"`{bundle_dir / path}`" for path in files.library)
             + ". What they say becomes no entry: a session that only repeats one adds nothing."
         )
+    if private:
+        target = "the project's knowledge file."
+    elif files.knowledge:
+        target = "the project's knowledge file or in a topic file."
+    else:
+        target = "a topic file."
+    lines.append(
+        f"- The catalog of every entry in the vault: `{bundle_dir / CATALOG}`. Check each "
+        f"insight against it before you write: extend the entry it matches in {target} "
+        "The rules say what to do when another project's file states it."
+    )
     lines += [
         "- `library/` is the user's folder: you cannot read it, and you never write into it or "
         "link to it, not in the text and not in a `library` property.",

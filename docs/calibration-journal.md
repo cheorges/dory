@@ -34,3 +34,27 @@ Estimated against actual time per iteration. Actual times come from the herdr jo
 |-------|----------|-------|------------|------------------------|------------|------|
 | S1: file names and post-run checks for the new layout | 1.5 | 2026-10-21 22:16 | 22:39 | 23 min / 2 min | not reviewed: the user let the build go on without a halt per story (2026-10-21 22:41) | agent time includes two review passes (two reviewers, then one; 3 findings, P2 and two P3); human time is the review of this package, read at sign-off; the design (conversation and one architect review) is not counted |
 | S2 to S7: worker, session start, summaries, `/dory:note`, search, release text | 2 for S2, none for the rest | 2026-10-21 22:42 | 23:11 | 29 min / not reviewed yet | | built in one run without a halt per story (the user's instruction of 22:41), so the stories are not measured one by one; includes the deny probe (11 runs), the live rule suite once and the changed checks twice more, the note checks three times, one combined review pass (two reviewers, 2 P3) |
+
+## Record 008: Capture knowledge reliably
+
+| Story | Est. (h) | Start | Impl. done | Actual (agent / human) | Review/DoD | Note |
+|-------|----------|-------|------------|------------------------|------------|------|
+| T: transcript copies deleted after processing | 0.5 | 2026-10-23 22:59 | 23:04 | 6 min / 1 min | ok 23:05 | agent time includes one review pass (two reviewers, one shared finding); the setup and design are not counted |
+| S1: rules that capture behaviour and preferences | 1 | 2026-10-23 23:06 | 2026-10-24 10:15 | 24 min active plus about 45 min of live runs in the background / not measurable (overnight pause) | ok 2026-10-24 10:18 | includes one review pass (two reviewers, 5 findings) and one decision halt (decision 4, Stories 5 and 6 added); two research reports ran in the same window and are not counted |
+| S4: a catalog of every entry in the bundle | 1 | 2026-10-24 10:18 | 10:52 | 11 min active plus about 30 min of live runs in the background / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, 6 findings) and a control run without the catalog |
+| S5: trace of changed or removed entries | 0.5 | 2026-10-24 10:53 | 11:00 | about 7 min (journal) / a few minutes | ok 2026-10-24 11:00 | includes one review pass (two reviewers, 4 findings); the journal shows less agent time than the turns took |
+| S6: signal for stale entries | 1 | 2026-10-24 11:00 | 11:26 | about 25 min active plus about 25 min of live runs / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, 8 findings, one P1) and a stale live run that hung and was stopped |
+| S2: comparison run against the real sessions | 1 | 2026-10-24 11:28 | 12:38 | about 15 min active plus about 25 min for the replay / about 10 min (reading the comparison, one question) | ok 2026-10-24 | the replay itself cost 7.41 USD API equivalent (opus, both versions) |
+| S1b: a rule the user sets is a preference | 0.3 | 2026-10-24 12:57 | 13:13 | about 6 min active plus about 25 min of live runs in the background / a few minutes | ok 2026-10-24 13:16 | includes one review pass (two reviewers, 4 findings) and two whole live suites |
+| S3: release 0.11.0 prepared | 0.3 | 2026-10-24 13:16 | 13:21 | about 5 min / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, 2 findings); merge and tag not included |
+
+## Record 009: Better proposals in /dory:library
+
+| Story | Est. (h) | Start | Impl. done | Actual (agent / human) | Review/DoD | Note |
+|-------|----------|-------|------------|------------------------|------------|------|
+| L1: no silent replacement, aliases and source | 0.5 | 2026-10-24 13:55 | 14:22 | about 15 min active plus about 12 min of live runs / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, 3 findings) and the search for the cause of a flaky live check that predates the story |
+| L2: the whole vault in the library context | 0.5 | 2026-10-24 16:47 | 16:58 | about 11 min active plus about 5 min of live runs / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, 6 findings); the 20,000-character check waits for the fixture of L3 |
+| L3: a test vault that measures link proposals | 0.5 | 2026-10-24 17:00 | 17:07 | about 7 min active plus about 2 min of review waits / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, 7 findings) |
+| L4: candidates computed in code | 1 | 2026-10-24 17:09 | 17:17 | about 8 min active plus about 2 min of review waits / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, 5 findings) and a look at the real output that found three more |
+| L5: the dialog uses the candidates | 1 | 2026-10-24 17:21 | 17:58 | about 20 min active plus about 30 min of live runs in the background / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, 6 findings), a widened duplicate rule found by a live run, and four rounds of five library runs |
+| L6: release text for Record 009 | 0.2 | 2026-10-24 18:11 | 18:14 | about 3 min / a few minutes | ok 2026-10-24 | includes one review pass (two reviewers, one shared finding); merge and tag not included |

@@ -446,6 +446,7 @@ def test_task_for_a_private_project_offers_no_topic_file(tmp_path):
     assert "change or create no topic file" in task
     assert "create a new topic file" not in task
     assert "`projects/hub/knowledge.md`" in task
+    assert "extend the entry it matches in the project's knowledge file." in task
 
 
 def hub_setup(tmp_path):
@@ -502,3 +503,126 @@ def test_a_kept_baseline_is_checked_with_the_layout_it_captured(tmp_path):
     }
     assert restored in log["vault_changes"]
     assert "domain: work" in knowledge.read_text()  # the killed run's change is undone
+
+
+def test_the_run_gets_a_catalog_of_the_vaults_entries(setup):
+    config, state, _ = setup
+    other = config.vault / "projects" / "box" / "knowledge.md"
+    other.parent.mkdir(parents=True)
+    other.write_text("---\ntype: knowledge\ndomain: work\n---\n## Facts\n- **Box fact.** x\n")
+    fake = FakeClaude(config.vault, output("success"))
+
+    run(state, make_process(config, state, fake))
+
+    bundle_dir = fake.calls[0]["bundle_dir"]
+    assert "- Facts: Box fact." in (bundle_dir / "catalog.md").read_text()
+    task = (bundle_dir / "task.md").read_text()
+    assert f"`{bundle_dir / 'catalog.md'}`" in task
+    assert "another project's file states it" in task
+
+
+def test_a_run_that_rewrites_an_entry_leaves_its_old_text_in_the_session_note(setup):
+    config, state, _ = setup
+    topic = config.vault / "notes" / "GitHub.md"
+    topic.parent.mkdir(parents=True)
+    topic.write_text(
+        "---\ntype: topic\n---\n## Pitfalls\n- **Pushing workflows needs a scope.** Use SSH.\n"
+        "- **Old fact.** Gone soon.\n"
+    )
+
+    class Rewriting(FakeClaude):
+        def __call__(self, command, cwd, env, timeout):
+            topic.write_text(
+                "---\ntype: topic\n---\n## Pitfalls\n"
+                "- **Pushing workflows needs the workflow scope.** Use SSH or refresh.\n"
+            )
+            return super().__call__(command, cwd, env, timeout)
+
+    fake = Rewriting(config.vault, output("success"))
+    run(state, make_process(config, state, fake))
+
+    note = next((config.vault / "sessions").rglob("*.md")).read_text()
+    assert "## Replaced" in note
+    assert "> - **Pushing workflows needs a scope.** Use SSH." in note
+    assert "(removed): Old fact." in note
+    assert "Use SSH or refresh" not in note.split("## Replaced")[1]
+
+
+def test_a_run_that_only_adds_leaves_no_trace(setup):
+    config, state, _ = setup
+    topic = config.vault / "notes" / "GitHub.md"
+    topic.parent.mkdir(parents=True)
+    topic.write_text("---\ntype: topic\n---\n## Pitfalls\n- **A.** B.\n")
+
+    class Adding(FakeClaude):
+        def __call__(self, command, cwd, env, timeout):
+            topic.write_text(topic.read_text() + "- **C.** D.\n")
+            return super().__call__(command, cwd, env, timeout)
+
+    run(state, make_process(config, state, Adding(config.vault, output("success"))))
+
+    assert "## Replaced" not in next((config.vault / "sessions").rglob("*.md")).read_text()
+
+
+def test_a_retry_keeps_the_trace_of_the_attempt_before(setup):
+    config, state, _ = setup
+    topic = config.vault / "notes" / "GitHub.md"
+    topic.parent.mkdir(parents=True)
+    topic.write_text("---\ntype: topic\n---\n## Pitfalls\n- **First version.** One.\n")
+
+    class Overloaded(FakeClaude):
+        def __call__(self, command, cwd, env, timeout):
+            topic.write_text("---\ntype: topic\n---\n## Pitfalls\n- **Second version.** Two.\n")
+            return super().__call__(command, cwd, env, timeout)
+
+    first = Overloaded(config.vault, output("rate-limit-429-synthetic"), write_note=False)
+    assert run(state, make_process(config, state, first)) == "stopped"
+    run(state, make_process(config, state, FakeClaude(config.vault, output("success"))))
+
+    note = next((config.vault / "sessions").rglob("*.md")).read_text()
+    assert "> - **First version.** One." in note
+
+
+def test_a_trace_that_cannot_be_written_does_not_fail_the_run(setup, monkeypatch):
+    config, state, path = setup
+    topic = config.vault / "notes" / "GitHub.md"
+    topic.parent.mkdir(parents=True)
+    topic.write_text("---\ntype: topic\n---\n## Pitfalls\n- **Old.** x\n")
+
+    class Rewriting(FakeClaude):
+        def __call__(self, command, cwd, env, timeout):
+            topic.write_text("---\ntype: topic\n---\n## Pitfalls\n- **New lead entirely.** y\n")
+            return super().__call__(command, cwd, env, timeout)
+
+    def broken(note, replaced):
+        raise OSError("iCloud said no")
+
+    monkeypatch.setattr("dory.trace.append", broken)
+    run(state, make_process(config, state, Rewriting(config.vault, output("success"))))
+
+    assert not path.exists() and (state.done / path.name).exists()
+
+
+def test_the_catalog_carries_the_flags_of_newer_entries(setup):
+    from datetime import UTC, datetime, timedelta
+
+    from dory import staleness
+
+    config, state, _ = setup
+    topic = config.vault / "notes" / "GitHub.md"
+    topic.parent.mkdir(parents=True)
+    topic.write_text("---\ntype: topic\n---\n- **Push needs a scope.** x\n")
+    later = datetime.now(UTC) + timedelta(hours=1)
+    staleness.record(
+        state,
+        [{"change": "added", "file": "notes/GitHub.md", "lead": "Push needs a scope."}],
+        "another-entry",
+        later,
+    )
+    fake = FakeClaude(config.vault, output("success"))
+
+    run(state, make_process(config, state, fake))
+
+    catalog_text = (fake.calls[0]["bundle_dir"] / "catalog.md").read_text()
+    assert "- Push needs a scope. [changed after this session]" in catalog_text
+    assert "push needs a scope" in staleness.load(state)["notes/GitHub.md"]

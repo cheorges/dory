@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from enum import Enum
 from pathlib import Path
 
-from dory import baseline, queue, repodocs, scopes, summary
+from dory import baseline, queue, repodocs, scopes, summary, trace
 from dory.bundle import build_bundle, write_bundle
 from dory.condense import condense
 from dory.config import Config
@@ -44,6 +44,8 @@ def run(state: StateDir, process: Process, summarize: Summarize | None = None) -
                 return "busy"
             repodocs.sweep(state)
             baseline.sweep(state)
+            queue.sweep(state)
+            trace.sweep(state)
             processed: set[str] = set()
             stopped = _drain(state, process, tried, processed)
             if not stopped and summarize:
@@ -122,6 +124,9 @@ def _handle(state: StateDir, path: Path, process: Process, processed: set[str]) 
         if not path.exists():  # the entry left the queue: its documents are no longer needed
             repodocs.discard(state, path.stem)
             baseline.discard(state, path.stem)
+            if not (state.failed / path.name).exists():  # a parked entry can be retried
+                queue.discard_transcript(state, path.stem)
+                trace.discard(state, path.stem)
 
 
 def _handle_entry(state: StateDir, path: Path, process: Process, processed: set[str]) -> bool:
